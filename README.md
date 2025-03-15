@@ -1,78 +1,80 @@
-# Steam Collection Auto-Add
+# The Karters 2: Turbo Charged Workshop Auto-Add
 
-A Python automation script that collects Steam Workshop items matching specific criteria and adds them to a designated collection.
+A Python automation script mainly designed for **The Karters 2: Turbo Charged**. The script scrapes the Steam Workshop for items matching specified criteria and automatically adds the missing ones to your designated collection. It can also be adapted for other games and workshop items by modifying the configuration settings.
 
-## Description
+## Overview
 
-This script automates the process of browsing through Steam Workshop pages, collecting items with specific tags, and adding them to your Steam collection. It uses Selenium with Microsoft Edge WebDriver to interact with the Steam website.
+This tool automates the process of keeping your Steam collection up-to-date by:
+- Browsing through specific Steam Workshop pages.
+- Extracting unique item IDs based on tags.
+- Scraping your current collection.
+- Adding only the missing items to your collection.
+
+The automation uses Selenium with Microsoft Edge WebDriver, using your existing Edge browser profile for a seamless Steam login experience.
 
 ## Features
 
-- Automatically scrapes Steam Workshop pages for items with specific tags.
-- Extracts unique item IDs from the workshop listings.
-- **Optimized collection update:** Scrapes the current collection to only add missing items.
-- Handles pagination to collect items from multiple pages.
-- Uses your existing Steam login session from an Edge browser profile.
-- Improved speed by reducing unnecessary delays and optimizing element waits.
+- **Steam Workshop Integration:** Targets The Karters 2: Turbo Charged Workshop (configurable for other games).
+- **Collection Synchronization:** Compares workshop items with your collection and adds only the missing ones.
+- **Optimized Navigation:** Handles pagination and improves performance by minimizing delays.
+- **Adaptability:** Easy to update URLs and settings via the configuration file (`config.py`).
 
 ## Prerequisites
 
 - Python 3.x
 - Microsoft Edge browser
 - Microsoft Edge WebDriver (matching your Edge version)
-- Steam account with an existing collection
+- A valid Steam account with an existing collection
 
 ## Installation
 
-1. Clone this repository:
-   ```
+1. **Clone the repository:**
+   ```bash
    git clone https://github.com/adelansari/steam_workshop_collection.git
    cd steam_workshop_collection
    ```
 
-2. Install required dependencies:
-   ```
+2. **Install required dependencies:**
+   ```bash
    pip install selenium
    ```
 
-3. Download [Microsoft Edge WebDriver](https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver/) that matches your Edge browser version
+3. **Download Microsoft Edge WebDriver:**
+   Ensure you have the correct version matching your Edge installation. Download it from [Microsoft Edge WebDriver](https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver/).
 
 ## Configuration
 
-Edit the following variables in `steam_collection_bot.py`:
+This project consists of two main files:
 
-```python
-# Configuration
-COLLECTION_ID = "3444831495"  # Your Steam collection ID
-EDGE_PROFILE_PATH = r"C:\Users\yourusername\AppData\Local\Microsoft\Edge\User Data\Default"
-EDGE_DRIVER_PATH = r"C:\path\to\msedgedriver.exe"  # Path to Edge WebDriver
-```
+- **config.py:** Centralizes configuration settings. Update the following variables as needed:
+  - `EDGE_PROFILE_PATH`: Path to your Edge user data profile.
+  - `EDGE_DRIVER_PATH`: Path to your Edge WebDriver executable.
+  - `COLLECTION_IDS`: Dictionary mapping collection names (e.g., "Characters", "Vehicles", "Tracks") to their Steam collection IDs.
+  - `WORKSHOP_BASE_URL` & `SHARED_FILE_DETAILS_URL`: Base URLs for Steam Workshop and shared file details. Update as appropriate to target other games.
 
-To change which items are collected, modify the base URL in the `get_workshop_items` function:
-
-```python
-base_url = "https://steamcommunity.com/workshop/browse/?appid=2269950&requiredtags[]=Vehicles&p="
-```
+- **steam_collection_bot.py:** Contains the main logic that:
+  - Prompts you to select a collection.
+  - Scrapes current workshop and collection items.
+  - Adds missing items to your collection.
 
 ## Usage
 
-1. Make sure you're logged into Steam in your Edge browser.
-2. Run the script:
-   ```
+1. **Ensure you are logged into Steam** via your Microsoft Edge profile.
+2. **Run the script:**
+   ```bash
    python steam_collection_bot.py
    ```
+3. **Follow the prompt** to select which collection to update. The script will then:
+   - Launch Edge using your configured profile.
+   - Scrape the Workshop for items tagged for The Karters 2: Turbo Charged.
+   - Compare scraped items with your current collection.
+   - Automatically add missing items to your collection.
+   - Exit once completed.
 
-3. The script will:
-   - Open Edge browser using your profile.
-   - Navigate through Steam Workshop pages and scrape item IDs.
-   - Scrape the existing collection to determine which items are missing.
-   - Visit only the missing item pages and add them to your collection.
-   - Close the browser when finished.
+## Adaptation
 
-## How it Works
+While this tool is tailored for **The Karters 2: Turbo Charged**, you can easily adapt it for other games by updating the configuration settings in `config.py`, particularly:
+- Changing `WORKSHOP_BASE_URL` to match the target game's Steam Workshop URL.
+- Updating `COLLECTION_IDS` to correspond with the correct Steam collection for the new game.
 
-1. **Configure WebDriver**: Sets up Microsoft Edge with your browser profile and necessary options.
-2. **Collect Workshop Items**: Navigates through workshop pages, scrapes item links, and extracts IDs.
-3. **Scrape Existing Collection**: Loads your collection page, scrapes and identifies items already added.
-4. **Efficient Update**: Only the missing workshop items are visited and added to the collection, reducing unnecessary page loads.
-5. **Optimizations**: Uses dynamic waits with WebDriverWait and minimizes delays to significantly improve performance.
+Enjoy automating your Steam collection updates!
