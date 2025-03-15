@@ -33,3 +33,41 @@ def configure_edge():
     service = Service(EDGE_DRIVER_PATH)
     driver = webdriver.Edge(service=service, options=options)
     return driver
+
+def get_workshop_items(driver):
+    base_url = "https://steamcommunity.com/workshop/browse/?appid=2269950&requiredtags[]=Vehicles&p="
+    item_ids = []
+    page = 1
+    
+    while True:
+        print(f"Navigating to page {page}...")
+        driver.get(f"{base_url}{page}")
+        time.sleep(3)  # Give page time to load
+        
+        if "No items matching your search criteria were found." in driver.page_source:
+            print("No more items found, breaking loop")
+            break
+        
+        try:
+            # Using the correct selector based on your HTML
+            items = WebDriverWait(driver, 30).until(
+                EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'a.item_link'))
+            )
+            
+            print(f"Found {len(items)} items on page {page}")
+            for item in items:
+                href = item.get_attribute("href")
+                if href and "id=" in href:
+                    item_id = href.split("id=")[1].split("&")[0]
+                    item_ids.append(item_id)
+                    print(f"Added item ID: {item_id}")
+        except TimeoutException:
+            print(f"Timeout while waiting for items on page {page}")
+            break
+        except Exception as e:
+            print(f"Error on page {page}: {str(e)}")
+            break
+        
+        page += 1
+    
+    return list(set(item_ids))
