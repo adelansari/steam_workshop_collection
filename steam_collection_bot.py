@@ -89,3 +89,12 @@ def add_to_collection(driver, item_ids):
             
         except Exception as e:
             print(f"Failed to add {item_id}: {str(e)}")
+
+if __name__ == "__main__":
+    driver = configure_edge()
+    try:
+        items = get_workshop_items(driver)
+        print(f"Found {len(items)} vehicles to add")
+        add_to_collection(driver, items)
+    finally:
+        driver.quit()
