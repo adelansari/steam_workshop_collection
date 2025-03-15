@@ -71,3 +71,21 @@ def get_workshop_items(driver):
         page += 1
     
     return list(set(item_ids))
+
+def add_to_collection(driver, item_ids):
+    for item_id in item_ids:
+        try:
+            driver.get(f"https://steamcommunity.com/sharedfiles/filedetails/?id={item_id}")
+            WebDriverWait(driver, 15).until(
+                EC.element_to_be_clickable((By.XPATH, "//a[contains(@href,'addtocollection')]"))
+            ).click()
+            
+            WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, f"input[data-collectionid='{COLLECTION_ID}']"))
+            ).click()
+            
+            driver.find_element(By.XPATH, "//button[contains(@class,'DialogButton_Primary')]").click()
+            time.sleep(1.5)
+            
+        except Exception as e:
+            print(f"Failed to add {item_id}: {str(e)}")
