@@ -16,26 +16,32 @@ COLLECTION_IDS = {
 # The Karters 2 Workshop base URL
 WORKSHOP_BASE_URL = "https://steamcommunity.com/workshop/browse/?appid=2269950&requiredtags[]="
 
+# The base URL for shared files details
+SHARED_FILE_DETAILS_URL = "https://steamcommunity.com/sharedfiles/filedetails/?id="
 
 def configure_edge():
     options = Options()
-    options.add_argument(f"user-data-dir={EDGE_PROFILE_PATH}")
-    options.add_argument("profile-directory=Default")
-    options.add_argument("--disable-infobars")
-    options.add_argument("--no-first-run")
-    options.add_argument("--disable-restore-session-state")
-    options.add_argument("--ignore-certificate-errors")
-    options.add_argument("--allow-running-insecure-content")
-    options.add_argument("--disable-web-security")
-    # options.add_argument("--headless=new")
-    options.add_argument("--log-level=3")
+    args = [
+        f"user-data-dir={EDGE_PROFILE_PATH}",
+        "profile-directory=Default",
+        "--disable-infobars",
+        "--no-first-run",
+        "--disable-restore-session-state",
+        "--ignore-certificate-errors",
+        "--allow-running-insecure-content",
+        "--disable-web-security",
+        "--headless=new",
+        "--log-level=3"
+    ]
+    for arg in args:
+        options.add_argument(arg)
+
     # Disable images to speed up loading:
     prefs = {"profile.managed_default_content_settings.images": 2}
     options.add_experimental_option("prefs", prefs)
-    
     options.add_experimental_option('excludeSwitches', ['enable-logging'])
     options.set_capability('acceptInsecureCerts', True)
-    
+
     service = Service(EDGE_DRIVER_PATH, log_path=os.devnull)
     driver = webdriver.Edge(service=service, options=options)
     driver.set_window_size(1920, 1080)
