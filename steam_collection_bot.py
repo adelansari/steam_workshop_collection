@@ -26,7 +26,7 @@ def choose_collection():
     return col_id, selected
 
 def get_collection_items(driver, col_id):
-    driver.get(f"https://steamcommunity.com/sharedfiles/filedetails/?id={col_id}")
+    driver.get(f"{config.SHARED_FILE_DETAILS_URL}{col_id}")
     try:
         WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, ".collectionChildren"))
@@ -35,26 +35,25 @@ def get_collection_items(driver, col_id):
         print("Failed to load collection items")
         return set()
     elements = driver.find_elements(By.CSS_SELECTOR, ".collectionItem a[href*='filedetails/?id=']")
-    items = {e.get_attribute("href").split("id=")[1].split("&")[0]
-             for e in elements if e.get_attribute("href")}
+    items = {e.get_attribute("href").split("id=")[1].split("&")[0] for e in elements if e.get_attribute("href")}
     print(f"Found {len(items)} items in the collection")
     return items
-# 
+
 def get_workshop_items(driver, tag):
     workshop_ids = set()
     page = 1
     base_url = f"{config.WORKSHOP_BASE_URL}{tag}&p="
     while True:
         driver.get(f"{base_url}{page}")
+        if driver.find_elements(By.CSS_SELECTOR, "#no_items"):
+            print(f"No more items found on page {page}.")
+            break
         try:
             WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "a.item_link"))
             )
         except TimeoutException:
-            if "No items matching" in driver.page_source:
-                print("No more items found.")
-            else:
-                print(f"Timeout waiting on page {page}")
+            print(f"Timeout waiting on page {page}")
             break
         elements = driver.find_elements(By.CSS_SELECTOR, "a.item_link")
         if not elements:
@@ -71,7 +70,7 @@ def get_workshop_items(driver, tag):
 def add_to_collection(driver, item_id, col_id):
     try:
         print(f"Adding item {item_id}...")
-        driver.get(f"https://steamcommunity.com/sharedfiles/filedetails/?id={item_id}")
+        driver.get(f"{config.SHARED_FILE_DETAILS_URL}{item_id}")
         WebDriverWait(driver, 5).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, ".general_btn[onclick*='AddToCollection']"))
         ).click()
@@ -99,11 +98,8 @@ if __name__ == "__main__":
             workshop_items = get_workshop_items(driver, tag)
             missing_items = list(workshop_items - current_items)
             print(f"Missing {len(missing_items)} items to add.")
-        finally:
-            driver.quit()
-        
-        # Reuse a single driver for adding missing items
-        driver = config.configure_edge()
+        except Exception as e:
+            print(f"Error during setup: {e}")
         for item in missing_items:
             add_to_collection(driver, item, collection_id)
         driver.quit()
