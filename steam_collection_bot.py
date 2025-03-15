@@ -36,84 +36,109 @@ def configure_edge():
     driver.set_window_size(1920, 1080)
     return driver
 
+def get_collection_items(driver):
+    # Load the collection page
+    collection_url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={COLLECTION_ID}"
+    driver.get(collection_url)
+    try:
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, ".collectionChildren"))
+        )
+    except TimeoutException:
+        print("Failed to load collection items")
+        return set()
+    
+    # Scrape item IDs from collection
+    collection_elements = driver.find_elements(By.CSS_SELECTOR, ".collectionItem a[href*='filedetails/?id=']")
+    collection_ids = set()
+    for elem in collection_elements:
+        href = elem.get_attribute("href")
+        if href and "id=" in href:
+            item_id = href.split("id=")[1].split("&")[0]
+            collection_ids.add(item_id)
+    print(f"Found {len(collection_ids)} items in the collection")
+    return collection_ids
+
 def get_workshop_items(driver):
     base_url = "https://steamcommunity.com/workshop/browse/?appid=2269950&requiredtags[]=Vehicles&p="
-    item_ids = []
+    workshop_ids = set()
     page = 1
     
     while True:
-        print(f"Navigating to page {page}...")
+        print(f"Scraping workshop page {page}...")
         driver.get(f"{base_url}{page}")
-        time.sleep(3)  # Give page time to load
-        
-        if "No items matching your search criteria were found." in driver.page_source:
-            print("No more items found, breaking loop")
-            break
-        
+        # wait briefly for the items to load
         try:
-            items = WebDriverWait(driver, 30).until(
-                EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'a.item_link'))
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, 'a.item_link'))
             )
-            
-            print(f"Found {len(items)} items on page {page}")
-            for item in items:
-                href = item.get_attribute("href")
-                if href and "id=" in href:
-                    item_id = href.split("id=")[1].split("&")[0]
-                    item_ids.append(item_id)
-                    print(f"Added item ID: {item_id}")
         except TimeoutException:
-            print(f"Timeout while waiting for items on page {page}")
-            break
-        except Exception as e:
-            print(f"Error on page {page}: {str(e)}")
+            # if no items found after waiting, break out of the loop
+            if "No items matching your search criteria were found." in driver.page_source:
+                print("No more items found.")
+            else:
+                print(f"Timeout waiting on page {page}")
             break
         
+        items = driver.find_elements(By.CSS_SELECTOR, 'a.item_link')
+        if not items:
+            print("No items returned; breaking loop")
+            break
+        
+        print(f"Found {len(items)} items on page {page}")
+        for item in items:
+            href = item.get_attribute("href")
+            if href and "id=" in href:
+                item_id = href.split("id=")[1].split("&")[0]
+                workshop_ids.add(item_id)
         page += 1
-    
-    return list(set(item_ids))
+    print(f"Total workshop items scraped: {len(workshop_ids)}")
+    return workshop_ids
 
 def add_to_collection(driver, item_ids):
+    # Process each missing workshop item
     for item_id in item_ids:
         try:
             print(f"Adding item {item_id} to collection...")
             driver.get(f"https://steamcommunity.com/sharedfiles/filedetails/?id={item_id}")
             
-            # Wait for the page to fully load
-            time.sleep(5)
-            
-            add_button = WebDriverWait(driver, 15).until(
+            # Wait for the Add button
+            add_button = WebDriverWait(driver, 10).until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, ".general_btn[onclick*='AddToCollection']"))
             )
             add_button.click()
             
-            WebDriverWait(driver, 15).until(
+            WebDriverWait(driver, 10).until(
                 EC.visibility_of_element_located((By.ID, "AddToCollectionDialog"))
             )
             
-            collection_checkbox = WebDriverWait(driver, 15).until(
+            collection_checkbox = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.ID, COLLECTION_ID))
             )
-            
             if not collection_checkbox.is_selected():
                 collection_checkbox.click()
             
-            # Click the OK button
-            WebDriverWait(driver, 15).until(
+            WebDriverWait(driver, 10).until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, ".btn_green_steamui.btn_medium span"))
             ).click()
             
             print(f"Successfully added item {item_id} to collection")
-            time.sleep(3)
-            
+            # brief pause to ensure processing before next addition
+            time.sleep(1)
         except Exception as e:
             print(f"Failed to add {item_id}: {str(e)}")
 
 if __name__ == "__main__":
     driver = configure_edge()
     try:
-        items = get_workshop_items(driver)
-        print(f"Found {len(items)} vehicles to add")
-        add_to_collection(driver, items)
+        collection_ids = get_collection_items(driver)
+        workshop_ids = get_workshop_items(driver)
+        # Only add items not already in collection
+        missing_ids = list(workshop_ids - collection_ids)
+        print(f"Missing {len(missing_ids)} items to add")
+        if missing_ids:
+            add_to_collection(driver, missing_ids)
+        else:
+            print("No missing items to add. Collection is up-to-date.")
     finally:
         driver.quit()
