@@ -26,12 +26,14 @@ def configure_edge():
     options.add_argument('--ignore-certificate-errors')
     options.add_argument('--allow-running-insecure-content')
     options.add_argument('--disable-web-security')
+    options.add_argument("--headless=new")
     options.add_experimental_option('excludeSwitches', ['enable-logging'])
     # Security bypass (temporary)
     options.set_capability('acceptInsecureCerts', True)
     
     service = Service(EDGE_DRIVER_PATH)
     driver = webdriver.Edge(service=service, options=options)
+    driver.set_window_size(1920, 1080)
     return driver
 
 def get_workshop_items(driver):
@@ -49,7 +51,6 @@ def get_workshop_items(driver):
             break
         
         try:
-            # Using the correct selector based on your HTML
             items = WebDriverWait(driver, 30).until(
                 EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'a.item_link'))
             )
@@ -75,17 +76,35 @@ def get_workshop_items(driver):
 def add_to_collection(driver, item_ids):
     for item_id in item_ids:
         try:
+            print(f"Adding item {item_id} to collection...")
             driver.get(f"https://steamcommunity.com/sharedfiles/filedetails/?id={item_id}")
-            WebDriverWait(driver, 15).until(
-                EC.element_to_be_clickable((By.XPATH, "//a[contains(@href,'addtocollection')]"))
-            ).click()
+            
+            # Wait for the page to fully load
+            time.sleep(5)
+            
+            add_button = WebDriverWait(driver, 15).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, ".general_btn[onclick*='AddToCollection']"))
+            )
+            add_button.click()
             
             WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, f"input[data-collectionid='{COLLECTION_ID}']"))
+                EC.visibility_of_element_located((By.ID, "AddToCollectionDialog"))
+            )
+            
+            collection_checkbox = WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.ID, COLLECTION_ID))
+            )
+            
+            if not collection_checkbox.is_selected():
+                collection_checkbox.click()
+            
+            # Click the OK button
+            WebDriverWait(driver, 15).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, ".btn_green_steamui.btn_medium span"))
             ).click()
             
-            driver.find_element(By.XPATH, "//button[contains(@class,'DialogButton_Primary')]").click()
-            time.sleep(1.5)
+            print(f"Successfully added item {item_id} to collection")
+            time.sleep(3)
             
         except Exception as e:
             print(f"Failed to add {item_id}: {str(e)}")
