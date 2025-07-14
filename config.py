@@ -3,7 +3,11 @@ from selenium.webdriver.edge.options import Options
 from selenium.webdriver.edge.service import Service
 from selenium import webdriver
 
-EDGE_PROFILE_PATH = r"C:\Users\adela\AppData\Local\Microsoft\Edge\User Data\Default"
+# Instead of using your Default profile, we’ll use a dedicated automation profile.
+AUTO_PROFILE_PATH = os.path.join(os.getcwd(), "edge_temp_profile")
+if not os.path.exists(AUTO_PROFILE_PATH):
+    os.makedirs(AUTO_PROFILE_PATH)
+
 EDGE_DRIVER_PATH = r"C:\EdgeDriver\msedgedriver.exe"
 
 # Collection IDs for each collection name
@@ -21,9 +25,9 @@ SHARED_FILE_DETAILS_URL = "https://steamcommunity.com/sharedfiles/filedetails/?i
 
 def configure_edge():
     options = Options()
+
     args = [
-        f"user-data-dir={EDGE_PROFILE_PATH}",
-        "profile-directory=Default",
+        f"user-data-dir={AUTO_PROFILE_PATH}",
         "--disable-infobars",
         "--no-first-run",
         "--disable-restore-session-state",
@@ -35,13 +39,16 @@ def configure_edge():
     ]
     for arg in args:
         options.add_argument(arg)
-
+    
+    # Hide automation flags
+    options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
+    options.add_experimental_option("useAutomationExtension", False)
+    
     # Disable images to speed up loading:
     prefs = {"profile.managed_default_content_settings.images": 2}
     options.add_experimental_option("prefs", prefs)
-    options.add_experimental_option('excludeSwitches', ['enable-logging'])
     options.set_capability('acceptInsecureCerts', True)
-
+    
     service = Service(EDGE_DRIVER_PATH, log_path=os.devnull)
     driver = webdriver.Edge(service=service, options=options)
     driver.set_window_size(1920, 1080)

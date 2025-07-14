@@ -67,27 +67,31 @@ def get_workshop_items(driver, tag):
     print(f"Total workshop items scraped: {len(workshop_ids)}")
     return workshop_ids
 
-def add_to_collection(driver, item_id, col_id):
-    try:
-        print(f"Adding item {item_id}...")
-        driver.get(f"{config.SHARED_FILE_DETAILS_URL}{item_id}")
-        WebDriverWait(driver, 5).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, ".general_btn[onclick*='AddToCollection']"))
-        ).click()
-        WebDriverWait(driver, 5).until(
-            EC.visibility_of_element_located((By.ID, "AddToCollectionDialog"))
-        )
-        checkbox = WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located((By.ID, col_id))
-        )
-        if not checkbox.is_selected():
-            checkbox.click()
-        WebDriverWait(driver, 5).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, ".btn_green_steamui.btn_medium span"))
-        ).click()
-        print(f"Successfully added item {item_id}")
-    except Exception as e:
-        print(f"Error processing item {item_id}: {e}")
+def add_to_collection(driver, item_id, col_id, retries=3):
+    for attempt in range(1, retries + 1):
+        try:
+            print(f"Adding item {item_id} (attempt {attempt})...")
+            driver.get(f"{config.SHARED_FILE_DETAILS_URL}{item_id}")
+            WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, ".general_btn[onclick*='AddToCollection']"))
+            ).click()
+            WebDriverWait(driver, 5).until(
+                EC.visibility_of_element_located((By.ID, "AddToCollectionDialog"))
+            )
+            checkbox = WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located((By.ID, col_id))
+            )
+            if not checkbox.is_selected():
+                checkbox.click()
+            WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, ".btn_green_steamui.btn_medium span"))
+            ).click()
+            print(f"Successfully added item {item_id}")
+            return
+        except Exception as e:
+            print(f"Error processing item {item_id} attempt {attempt}: {e}")
+            time.sleep(2)
+    print(f"Failed to process item {item_id} after {retries} attempts.")
 
 if __name__ == "__main__":
     try:
