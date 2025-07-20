@@ -38,47 +38,18 @@ def subscribe_to_collection(collection_id="3445118133"):
             print("Could not find 'Subscribe to all' button. The collection might already be subscribed to, or the page layout has changed.")
             return False
         
-        # Wait for the modal dialog to appear
-        print("Waiting for subscription modal to appear...")
         try:
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, ".newmodal"))
-            )
-            print("Modal appeared, looking for 'Add Only' button...")
-        except TimeoutException:
-            print("Modal did not appear. Checking if subscription was successful...")
-            time.sleep(2)
-            return True
-        
-        # Click the "Add Only" button in the modal
-        try:
-            add_only_button = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, "//div[contains(@class, 'btn_green_steamui') and contains(@class, 'btn_medium')]//span[text()='Add Only']"))
+            add_only_button = WebDriverWait(driver, 30).until(
+                EC.element_to_be_clickable((By.XPATH, "//div[contains(@class,'newmodal')]//div[contains(@class,'btn_green_steamui') and contains(@class,'btn_medium')]//span[text()='Add Only']"))
             )
             print("Found 'Add Only' button, clicking...")
             add_only_button.click()
-            
-            # Wait a moment for the action to complete
             time.sleep(3)
             print("Successfully subscribed to collection with 'Add Only' option!")
             return True
-            
         except TimeoutException:
-            print("Could not find 'Add Only' button in the modal. Trying alternative selector...")
-            
-            # Try alternative selector
-            try:
-                add_only_button = WebDriverWait(driver, 5).until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, "div.btn_green_steamui.btn_medium"))
-                )
-                print("Found 'Add Only' button with alternative selector, clicking...")
-                add_only_button.click()
-                time.sleep(3)
-                print("Successfully subscribed to collection with 'Add Only' option!")
-                return True
-            except TimeoutException:
-                print("Could not find 'Add Only' button with any selector.")
-                return False
+            print("Failed to find or click 'Add Only' button in modal.")
+            return False
         
     except Exception as e:
         print(f"An error occurred: {e}")
