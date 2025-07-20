@@ -75,8 +75,13 @@ def main():
     for i, name in enumerate(keys, start=1):
         print(f"  {i}. {name} ({config.COLLECTION_IDS[name]})")
     print("  0. Enter custom collection ID")
-    choice = input("Select a collection by number (or 0 to enter custom ID): ").strip()
-    if choice == '0':
+    skip_option = len(keys) + 1
+    print(f"  {skip_option}. Skip subscription (exit)")
+    choice = input(f"Select a collection by number (0 for custom, {skip_option} to skip): ").strip()
+    if choice == str(skip_option):
+        print("Skipping subscription as requested.")
+        sys.exit(0)
+    elif choice == '0':
         collection_id = input("Enter collection ID: ").strip()
     else:
         try:
