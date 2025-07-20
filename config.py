@@ -3,10 +3,9 @@ from selenium.webdriver.edge.options import Options
 from selenium.webdriver.edge.service import Service
 from selenium import webdriver
 
-# Instead of using your Default profile, we’ll use a dedicated automation profile.
-AUTO_PROFILE_PATH = os.path.join(os.getcwd(), "edge_temp_profile")
-if not os.path.exists(AUTO_PROFILE_PATH):
-    os.makedirs(AUTO_PROFILE_PATH)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+AUTO_PROFILE_PATH = os.path.join(BASE_DIR, "edge_temp_profile")
+os.makedirs(AUTO_PROFILE_PATH, exist_ok=True)
 
 EDGE_DRIVER_PATH = r"C:\EdgeDriver\msedgedriver.exe"
 
