@@ -64,9 +64,27 @@ def main():
     print("Steam Workshop Collection Subscriber")
     print("=" * 40)
     
-    # Use the Tracks collection ID from config
-    collection_id = config.COLLECTION_IDS.get("Tracks", "3445118133")
-    
+    # Let user select a collection or enter custom ID
+    print("Available collections:")
+    keys = list(config.COLLECTION_IDS.keys())
+    for i, name in enumerate(keys, start=1):
+        print(f"  {i}. {name} ({config.COLLECTION_IDS[name]})")
+    print("  0. Enter custom collection ID")
+    choice = input("Select a collection by number (or 0 to enter custom ID): ").strip()
+    if choice == '0':
+        collection_id = input("Enter collection ID: ").strip()
+    else:
+        try:
+            idx = int(choice)
+            if 1 <= idx <= len(keys):
+                name = keys[idx-1]
+                collection_id = config.COLLECTION_IDS[name]
+            else:
+                print("Invalid selection. Exiting.")
+                sys.exit(1)
+        except ValueError:
+            print("Invalid input. Exiting.")
+            sys.exit(1)
     print(f"Starting subscription process for collection: {collection_id}")
     print("This will subscribe to all items in the collection using 'Add Only' mode.")
     print("This means Steam will automatically check for downloads when you start the game.")
