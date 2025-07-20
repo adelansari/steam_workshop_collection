@@ -110,8 +110,7 @@ def main():
         print("\n❌ Collection subscription failed or was incomplete.")
         print("You may need to manually subscribe to the collection or check your Steam login status.")
     
-    print("\nPress Enter to exit...")
-    input()
+    # Subscription script completed; exiting without user prompt
 
 if __name__ == "__main__":
     try:
@@ -121,6 +120,4 @@ if __name__ == "__main__":
         sys.exit(0)
     except Exception as e:
         print(f"\nUnexpected error: {e}")
-        print("Press Enter to exit...")
-        input()
         sys.exit(1)

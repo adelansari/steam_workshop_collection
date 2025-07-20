@@ -73,6 +73,19 @@ This project consists of two main files:
    - Automatically add missing items to your collection.
    - Exit once completed.
 
+## Auto-run the subscription script before launching the game
+
+To automate subscription before starting **The Karters 2**, configure Steam to run the following batch wrapper instead of the game directly:
+
+- Create a batch file named `run_subscribe_and_game.bat` in this folder (already provided).
+- Set Steam Launch Options to:
+
+```
+"C:\Users\adela\Documents\Coding\SteamCollectionAutoAdd\run_subscribe_and_game.bat" "%command%"
+```
+
+This will first execute `subscribe_collection.py` and then launch the game.
+
 ## Adaptation
 
 While this tool is tailored for **The Karters 2: Turbo Charged**, you can easily adapt it for other games by updating the configuration settings in `config.py`, particularly:
