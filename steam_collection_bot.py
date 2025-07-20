@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import json
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -9,6 +10,24 @@ import config
 
 os.environ['WDM_LOCAL'] = '1'
 os.environ['WDM_SSL_VERIFY'] = '0'
+
+CACHE_PATH = os.path.join(os.getcwd(), "workshop_cache.json")
+
+def load_cache():
+    """Load workshop items cache from JSON file."""
+    if os.path.exists(CACHE_PATH):
+        try:
+            with open(CACHE_PATH, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+def save_cache(cache):
+    """Save workshop items cache to JSON file."""
+    with open(CACHE_PATH, "w") as f:
+        json.dump(cache, f)
 
 def choose_collection():
     print("Select which collection to update:")
@@ -39,10 +58,14 @@ def get_collection_items(driver, col_id):
     print(f"Found {len(items)} items in the collection")
     return items
 
-def get_workshop_items(driver, tag):
+def get_workshop_items(driver, tag, existing_items=None):
+    """Scrape workshop items sorted by most recent, stopping when encountering only cached items."""
+    if existing_items is None:
+        existing_items = set()
     workshop_ids = set()
     page = 1
-    base_url = f"{config.WORKSHOP_BASE_URL}{tag}&p="
+    # sort by most recent
+    base_url = f"{config.WORKSHOP_BASE_URL}{tag}&browsesort=mostrecent&p="
     while True:
         driver.get(f"{base_url}{page}")
         if driver.find_elements(By.CSS_SELECTOR, "#no_items"):
@@ -56,15 +79,16 @@ def get_workshop_items(driver, tag):
             print(f"Timeout waiting on page {page}")
             break
         elements = driver.find_elements(By.CSS_SELECTOR, "a.item_link")
-        if not elements:
+        page_ids = {e.get_attribute("href").split("id=")[1].split("&")[0] for e in elements if e.get_attribute("href")}
+        # stop if no new items on this page
+        new_ids = page_ids - existing_items
+        if not new_ids:
+            print(f"No new items on page {page}, stopping early.")
             break
-        for e in elements:
-            href = e.get_attribute("href")
-            if href and "id=" in href:
-                workshop_ids.add(href.split("id=")[1].split("&")[0])
+        workshop_ids.update(new_ids)
         print(f"Scraped page {page} ({len(elements)} items)")
         page += 1
-    print(f"Total workshop items scraped: {len(workshop_ids)}")
+    print(f"Total new workshop items scraped: {len(workshop_ids)}")
     return workshop_ids
 
 def add_to_collection(driver, item_id, col_id, retries=3):
@@ -96,16 +120,22 @@ def add_to_collection(driver, item_id, col_id, retries=3):
 if __name__ == "__main__":
     try:
         collection_id, tag = choose_collection()
+        # load cached workshop items for this tag
+        cache = load_cache()
+        prev_items = set(cache.get(tag, []))
         driver = config.configure_edge()
         try:
             current_items = get_collection_items(driver, collection_id)
-            workshop_items = get_workshop_items(driver, tag)
+            workshop_items = get_workshop_items(driver, tag, prev_items)
             missing_items = list(workshop_items - current_items)
             print(f"Missing {len(missing_items)} items to add.")
         except Exception as e:
             print(f"Error during setup: {e}")
         for item in missing_items:
             add_to_collection(driver, item, collection_id)
+        # update and save cache
+        cache[tag] = list(prev_items.union(workshop_items))
+        save_cache(cache)
         driver.quit()
     except KeyboardInterrupt:
         print("\nExiting.")
