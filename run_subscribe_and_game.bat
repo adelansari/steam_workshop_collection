@@ -13,6 +13,8 @@ if errorlevel 1 (
     echo Subscription script failed. Exiting.
     exit /b 1
 )
-REM Launch the game executable passed by Steam
-start "" %*
+REM Give Steam a few seconds to sync subscriptions
+timeout /t 5 /nobreak >nul
+REM Launch the game via the original Steam command so Steam tracks it properly
+call %*
 exit /b 0
