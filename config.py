@@ -13,7 +13,8 @@ EDGE_DRIVER_PATH = r"C:\EdgeDriver\msedgedriver.exe"
 COLLECTION_IDS = {
     "Characters": "3445105194",
     "Vehicles": "3444831495",
-    "Tracks": "3445118133"
+    "Tracks": "3445118133",
+    "Wheels": "3530392942",
 }
 
 # The Karters 2 Workshop base URL
