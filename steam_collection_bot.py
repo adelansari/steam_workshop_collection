@@ -10,8 +10,9 @@ import config
 
 os.environ['WDM_LOCAL'] = '1'
 os.environ['WDM_SSL_VERIFY'] = '0'
-
-CACHE_PATH = os.path.join(os.getcwd(), "workshop_cache.json")
+# Ensure cache is stored next to this script, not in working directory
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CACHE_PATH = os.path.join(BASE_DIR, "workshop_cache.json")
 
 def load_cache():
     """Load workshop items cache from JSON file."""
@@ -120,7 +121,6 @@ def add_to_collection(driver, item_id, col_id, retries=3):
 if __name__ == "__main__":
     try:
         collection_id, tag = choose_collection()
-        # load cached workshop items for this tag
         cache = load_cache()
         prev_items = set(cache.get(tag, []))
         driver = config.configure_edge()
@@ -128,12 +128,12 @@ if __name__ == "__main__":
             current_items = get_collection_items(driver, collection_id)
             workshop_items = get_workshop_items(driver, tag, prev_items)
             missing_items = list(workshop_items - current_items)
-            print(f"Missing {len(missing_items)} items to add.")
+            print(f"Missing {len(missing_items)} item(s) to add for '{tag}'.")
         except Exception as e:
             print(f"Error during setup: {e}")
+            missing_items = []
         for item in missing_items:
             add_to_collection(driver, item, collection_id)
-        # update and save cache
         cache[tag] = list(prev_items.union(workshop_items))
         save_cache(cache)
         driver.quit()
