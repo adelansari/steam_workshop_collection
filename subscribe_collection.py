@@ -24,9 +24,14 @@ def subscribe_to_collection(collection_id="3445118133"):
         WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "body"))
         )
-        
+        # Count unsubscribed items in the collection
+        items_to_subscribe = driver.find_elements(By.CSS_SELECTOR, "a.general_btn.subscribe:not(.toggled)")
+        missing_count = len(items_to_subscribe)
+        print(f"Found {missing_count} unsubscribed item(s) in this collection.")
+        if missing_count == 0:
+            print("All items already subscribed; nothing to do.")
+            return 0
         print("Looking for 'Subscribe to all' button...")
-        
         # Wait for and click the "Subscribe to all" button
         try:
             subscribe_button = WebDriverWait(driver, 10).until(
@@ -35,8 +40,8 @@ def subscribe_to_collection(collection_id="3445118133"):
             print("Found 'Subscribe to all' button, clicking...")
             subscribe_button.click()
         except TimeoutException:
-            print("Could not find 'Subscribe to all' button. The collection might already be subscribed to, or the page layout has changed.")
-            return False
+            print("Could not find 'Subscribe to all' button. The page layout may have changed.")
+            return None
         
         try:
             add_only_button = WebDriverWait(driver, 30).until(
@@ -45,11 +50,11 @@ def subscribe_to_collection(collection_id="3445118133"):
             print("Found 'Add Only' button, clicking...")
             add_only_button.click()
             time.sleep(3)
-            print("Successfully subscribed to collection with 'Add Only' option!")
-            return True
+            print(f"Successfully subscribed to {missing_count} item(s) with 'Add Only' option!")
+            return missing_count
         except TimeoutException:
             print("Failed to find or click 'Add Only' button in modal.")
-            return False
+            return None
         
     except Exception as e:
         print(f"An error occurred: {e}")
