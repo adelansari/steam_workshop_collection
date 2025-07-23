@@ -22,21 +22,39 @@ def main():
     cache = load_cache()
     driver = config.configure_edge()
     try:
-        for tag, collection_id in config.COLLECTION_IDS.items():
-            print(f"\nProcessing collection '{tag}' (ID: {collection_id})...")
+        for tag, collections in config.COLLECTION_IDS.items():
+            print(f"\nProcessing tag '{tag}' (collections: {collections})...")
             prev_items = set(cache.get(tag, []))
             try:
-                current_items = get_collection_items(driver, collection_id)
+                # Gather current items for each collection and total
+                current_items_map = {}
+                total_current = set()
+                for col_id in collections:
+                    items = get_collection_items(driver, col_id)
+                    current_items_map[col_id] = set(items)
+                    total_current.update(items)
+                # Scrape new workshop items based on cache
                 workshop_items = get_workshop_items(driver, tag, prev_items)
-                missing_items = list(workshop_items - current_items)
-                print(f"Missing {len(missing_items)} item(s) to add for '{tag}'.")
+                # Determine items missing across all collections
+                missing_items = [i for i in workshop_items if i not in total_current]
+                print(f"Total missing {len(missing_items)} item(s) for '{tag}'. Distributing across {len(collections)} collections.")
+                # Add items to collections up to max limit
                 for item in missing_items:
-                    add_to_collection(driver, item, collection_id)
-                # Update cache after processing this collection
+                    placed = False
+                    for col_id in collections:
+                        if len(current_items_map[col_id]) < config.MAX_COLLECTION_ITEMS:
+                            add_to_collection(driver, item, col_id)
+                            current_items_map[col_id].add(item)
+                            placed = True
+                            break
+                    if not placed:
+                        print(f"All collections for '{tag}' are full (limit {config.MAX_COLLECTION_ITEMS}). Stopping addition.")
+                        break
+                # Update cache after processing this tag
                 cache[tag] = list(prev_items.union(workshop_items))
                 save_cache(cache)
             except Exception as e:
-                print(f"Error processing collection '{tag}': {e}")
+                print(f"Error processing tag '{tag}': {e}")
     except KeyboardInterrupt:
         print("\nProcess interrupted by user. Exiting early.")
         sys.exit(1)
