@@ -48,10 +48,11 @@ The automation uses Selenium with Microsoft Edge WebDriver, using your existing 
 
 This project consists of two main files:
 
-- **config.py:** Centralizes configuration settings. Update the following variables as needed:
+  - **config.py:** Centralizes configuration settings. Update the following variables as needed:
   - `EDGE_PROFILE_PATH`: Path to your Edge user data profile.
   - `EDGE_DRIVER_PATH`: Path to your Edge WebDriver executable.
   - `COLLECTION_IDS`: Dictionary mapping collection names (e.g., "Characters", "Vehicles", "Tracks") to their Steam collection IDs.
+  - **Cache Storage:** Cache files are now stored per tag in the `cache/` folder, with each tag in its own JSON file. You can clear or inspect these files independently.
   - `WORKSHOP_BASE_URL` & `SHARED_FILE_DETAILS_URL`: Base URLs for Steam Workshop and shared file details. Update as appropriate to target other games.
 
 - **steam_collection_bot.py:** Contains the main logic that:

@@ -21,6 +21,7 @@ def main():
     add any missing workshop items, and update the cache.
     """
     cache = load_cache()
+    cache_changed = False
     driver = config.configure_edge()
     try:
         for tag, collections in config.COLLECTION_IDS.items():
@@ -51,9 +52,11 @@ def main():
                     if not placed:
                         print(f"All collections for '{tag}' are full (limit {config.MAX_COLLECTION_ITEMS}). Stopping addition.")
                         break
-                # Update cache after processing this tag
-                cache[tag] = list(prev_items.union(workshop_items))
-                save_cache(cache)
+                # Update cache only if new items were added for this tag
+                new_items = prev_items.union(workshop_items)
+                if new_items != prev_items:
+                    cache[tag] = list(new_items)
+                    cache_changed = True
             except Exception as e:
                 print(f"Error processing tag '{tag}': {e}")
     except KeyboardInterrupt:
@@ -61,14 +64,19 @@ def main():
         sys.exit(1)
     finally:
         driver.quit()
-        # Commit and push any changes to GitHub
-        try:
-            subprocess.run(["git", "add", "-A"], check=True)
-            subprocess.run(["git", "commit", "-m", "updated collection with new items"], check=True)
-            subprocess.run(["git", "push"], check=True)
-            print("Git: Changes committed and pushed to GitHub.")
-        except subprocess.CalledProcessError as e:
-            print(f"Git operation failed: {e}")
+        # Only save and commit if cache was updated
+        if cache_changed:
+            save_cache(cache)
+            # Commit and push any changes to GitHub
+            try:
+                subprocess.run(["git", "add", "-A"], check=True)
+                subprocess.run(["git", "commit", "-m", "updated collection with new items"], check=True)
+                subprocess.run(["git", "push"], check=True)
+                print("Git: Changes committed and pushed to GitHub.")
+            except subprocess.CalledProcessError as e:
+                print(f"Git operation failed: {e}")
+        else:
+            print("No new items added; skipping cache save and git commit.")
 
 if __name__ == "__main__":
     main()

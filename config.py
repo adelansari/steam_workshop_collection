@@ -7,6 +7,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 AUTO_PROFILE_PATH = os.path.join(BASE_DIR, "edge_temp_profile")
 os.makedirs(AUTO_PROFILE_PATH, exist_ok=True)
 
+# Directory to store per-tag cache files
+CACHE_DIR = os.path.join(BASE_DIR, "cache")
+os.makedirs(CACHE_DIR, exist_ok=True)
+
 EDGE_DRIVER_PATH = r"C:\EdgeDriver\msedgedriver.exe"
 
 # Maximum number of items per collection

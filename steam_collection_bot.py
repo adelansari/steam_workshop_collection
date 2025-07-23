@@ -10,25 +10,37 @@ import config
 
 os.environ['WDM_LOCAL'] = '1'
 os.environ['WDM_SSL_VERIFY'] = '0'
-# Ensure cache is stored next to this script, not in working directory
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CACHE_PATH = os.path.join(BASE_DIR, "workshop_cache.json")
+# Cache directory for per-tag JSON files
+CACHE_DIR = config.CACHE_DIR
 
 def load_cache():
-    """Load workshop items cache from JSON file."""
-    if os.path.exists(CACHE_PATH):
-        try:
-            with open(CACHE_PATH, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
+    """Load workshop items cache from per-tag JSON files in cache directory."""
+    cache = {}
+    try:
+        for fname in os.listdir(CACHE_DIR):
+            if fname.endswith('.json'):
+                tag = fname[:-5]
+                path = os.path.join(CACHE_DIR, fname)
+                try:
+                    with open(path, 'r') as f:
+                        cache[tag] = json.load(f)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return cache
 
 
 def save_cache(cache):
-    """Save workshop items cache to JSON file."""
-    with open(CACHE_PATH, "w") as f:
-        json.dump(cache, f)
+    """Save workshop items cache to per-tag JSON files in cache directory."""
+    for tag, items in cache.items():
+        path = os.path.join(CACHE_DIR, f"{tag}.json")
+        try:
+            # Preserve list order; newly added items remain at the end
+            with open(path, 'w') as f:
+                json.dump(items, f, indent=2)
+        except Exception:
+            pass
 
 def choose_collection():
     print("Select which collection tag to update:")
