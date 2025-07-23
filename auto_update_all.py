@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import subprocess
 from selenium.common.exceptions import TimeoutException
 # Change working directory to script folder so cache file path is consistent
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -60,6 +61,14 @@ def main():
         sys.exit(1)
     finally:
         driver.quit()
+        # Commit and push any changes to GitHub
+        try:
+            subprocess.run(["git", "add", "-A"], check=True)
+            subprocess.run(["git", "commit", "-m", "updated collection with new items"], check=True)
+            subprocess.run(["git", "push"], check=True)
+            print("Git: Changes committed and pushed to GitHub.")
+        except subprocess.CalledProcessError as e:
+            print(f"Git operation failed: {e}")
 
 if __name__ == "__main__":
     main()
