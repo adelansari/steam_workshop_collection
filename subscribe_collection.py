@@ -69,45 +69,40 @@ def main():
     print("Steam Workshop Collection Subscriber")
     print("=" * 40)
     
-    # Let user select a collection or enter custom ID
-    print("Available collections:")
-    keys = list(config.COLLECTION_IDS.keys())
-    for i, name in enumerate(keys, start=1):
-        print(f"  {i}. {name} ({config.COLLECTION_IDS[name]})")
+    # Prompt user for which tag to subscribe
+    print("Available tags:")
+    tags = list(config.COLLECTION_IDS.keys())
+    for i, tag in enumerate(tags, start=1):
+        print(f"  {i}. {tag}")
     print("  0. Enter custom collection ID")
-    skip_option = len(keys) + 1
-    print(f"  {skip_option}. Skip subscription (exit)")
-    choice = input(f"Select a collection by number (0 for custom, {skip_option} to skip): ").strip()
-    if choice == str(skip_option):
+    print(f"  {len(tags)+1}. Skip subscription (exit)")
+    choice = input(f"Select a tag (1-{len(tags)}) or 0 for custom, {len(tags)+1} to skip: ").strip()
+    if choice == str(len(tags)+1):
         print("Skipping subscription as requested.")
         sys.exit(0)
     elif choice == '0':
-        collection_id = input("Enter collection ID: ").strip()
+        col_ids = [input("Enter custom collection ID: ").strip()]
+        tag = None
     else:
         try:
             idx = int(choice)
-            if 1 <= idx <= len(keys):
-                name = keys[idx-1]
-                collection_id = config.COLLECTION_IDS[name]
+            if 1 <= idx <= len(tags):
+                tag = tags[idx-1]
+                col_ids = config.COLLECTION_IDS[tag]
             else:
                 print("Invalid selection. Exiting.")
                 sys.exit(1)
         except ValueError:
             print("Invalid input. Exiting.")
             sys.exit(1)
-    print(f"Starting subscription process for collection: {collection_id}")
-    print("This will subscribe to all items in the collection using 'Add Only' mode.")
-    print("This means Steam will automatically check for downloads when you start the game.")
-    print()
-    
-    success = subscribe_to_collection(collection_id)
-    
-    if success:
-        print("\n✅ Collection subscription completed successfully!")
-        print("Steam will now automatically check for and download new items from this collection when you start the game.")
-    else:
-        print("\n❌ Collection subscription failed or was incomplete.")
-        print("You may need to manually subscribe to the collection or check your Steam login status.")
+    # Subscribe to each collection ID
+    for col_id in col_ids:
+        success = subscribe_to_collection(col_id)
+        # Provide feedback for each
+        if success:
+            print(f"✅ Subscribed to collection ID {col_id} successfully.")
+        else:
+            print(f"❌ Subscription failed for collection ID {col_id}.")
     
     # Subscription script completed; exiting without user prompt
 
