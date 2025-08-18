@@ -114,6 +114,59 @@ Stopping conditions:
 
 If a collection is already over the configured limit (e.g., due to past manual additions), the script skips adding to it and logs a warning—you can manually trim if needed.
 
+## Internal Workflow Details
+
+This section documents the precise logic the scripts follow (useful for auditing or extending):
+
+### 1. First Run (no cache present)
+1. `load_cache()` returns an empty dict.
+2. Each collection ID for the selected tag is loaded via `get_collection_items()` (the page is scrolled until item count stabilizes).
+3. A union of all currently present item IDs becomes the baseline `prev_items`.
+4. Workshop pages are scraped (most recent first). For each page:
+    - Extract all item IDs.
+    - Compute `new_ids = page_ids - prev_items`.
+    - If `new_ids` is empty, stop immediately (early stop).
+5. Usually on a genuine first run nothing new is added because your collections already contain everything seen on the newest pages.
+6. Per‑collection JSON cache files are written.
+
+### 2. Determining “Missing” Items
+- `workshop_items` accumulates every newly seen ID until the early stop.
+- `total_current` = union of item IDs across all managed collections for the tag.
+- `missing_items = [id for id in workshop_items if id not in total_current]`.
+   (Normally identical to `workshop_items` unless something was just manually added.)
+
+### 3. Multiple Collections Handling
+- All collections are loaded before any additions.
+- For each missing item the script picks the collection with the largest remaining capacity (`MAX_COLLECTION_ITEMS - current_count`).
+- Near limit (<=25 remaining) it re-fetches that collection to correct for any lazy‑load undercount before deciding further additions.
+- If all collections are at or above the limit, additions stop.
+
+### 4. Limit Enforcement
+- The selector never returns a collection with zero remaining capacity.
+- Near-limit refresh prevents overshooting due to partially loaded DOM states.
+- If after refresh the collection is at/over the cap it is excluded from further additions.
+
+### 5. When Workshop Scraping Stops
+Scraping halts when any of these occurs:
+- A "no items" marker appears.
+- Page load times out.
+- First page where every ID is already known (`page_ids - prev_items` is empty).
+
+Implication: Historical gaps older than the first fully-known page are not revisited (forward-only mode). Removing items from collections does not force backfill unless you also clear the relevant cache JSONs.
+
+### 6. Cache After a Run
+`cache/<Tag>/<CollectionID>.json` for each managed collection—each contains a sorted JSON list of that collection's item IDs. Deleting a specific file forces a re-scan of only that collection next run.
+
+### 7. Summary Flow (Per Tag)
+1. Load existing per‑collection sets.
+2. Union them for baseline.
+3. Scrape recent pages until a page has zero new IDs.
+4. Filter to items not already in any collection.
+5. Add items to the collection with the most remaining capacity.
+6. Revalidate counts near cap.
+7. Save updated per‑collection JSONs.
+
+
 ## Auto-run the subscription script before launching the game
 
 To automate subscription before starting **The Karters 2**, configure Steam to run the following batch wrapper instead of the game directly:
