@@ -57,18 +57,56 @@ def choose_collection():
     return selected
 
 def get_collection_items(driver, col_id):
+    """Return full set of item IDs in a collection, attempting to lazy-load all items.
+
+    Steam collection pages often lazy load items when scrolling. The previous implementation
+    only counted the initially loaded DOM nodes which could significantly under-report the
+    true count. That under-count let the script believe there was remaining capacity and
+    push the collection beyond the intended MAX_COLLECTION_ITEMS.
+    """
     driver.get(f"{config.SHARED_FILE_DETAILS_URL}{col_id}")
     try:
-        WebDriverWait(driver, 15).until(
+        WebDriverWait(driver, 20).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, ".collectionChildren"))
         )
     except TimeoutException:
-        print("Failed to load collection items")
+        print("Failed to load collection items container for collection", col_id)
         return set()
+
+    last_count = -1
+    stable_iterations = 0
+    max_stable_needed = 2
+    start_time = time.time()
+    timeout = 45
+    while time.time() - start_time < timeout and stable_iterations < max_stable_needed:
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(0.4)
+        elements = driver.find_elements(By.CSS_SELECTOR, ".collectionItem a[href*='filedetails/?id=']")
+        current_count = len(elements)
+        if current_count == last_count:
+            stable_iterations += 1
+        else:
+            stable_iterations = 0
+        last_count = current_count
+        if current_count >= config.MAX_COLLECTION_ITEMS + 5:
+            break
     elements = driver.find_elements(By.CSS_SELECTOR, ".collectionItem a[href*='filedetails/?id=']")
     items = {e.get_attribute("href").split("id=")[1].split("&")[0] for e in elements if e.get_attribute("href")}
-    print(f"Found {len(items)} items in the collection")
+    print(f"Collection {col_id} reported {len(items)} fully-loaded item(s)")
+    if len(items) > config.MAX_COLLECTION_ITEMS:
+        print(f"WARNING: Collection {col_id} currently exceeds MAX_COLLECTION_ITEMS ({config.MAX_COLLECTION_ITEMS}). No further additions will be made to this collection.")
     return items
+
+def select_best_collection(current_items_map, max_limit):
+    """Return collection id with most remaining capacity (or None if all full)."""
+    best_id = None
+    best_remaining = -1
+    for cid, items in current_items_map.items():
+        remaining = max_limit - len(items)
+        if remaining > best_remaining and remaining > 0:
+            best_remaining = remaining
+            best_id = cid
+    return best_id
 
 def get_workshop_items(driver, tag, existing_items=None):
     """Scrape workshop items sorted by most recent, stopping when encountering only cached items."""
@@ -108,6 +146,10 @@ def add_to_collection(driver, item_id, col_id, retries=3):
         try:
             print(f"Adding item {item_id} (attempt {attempt})...")
             driver.get(f"{config.SHARED_FILE_DETAILS_URL}{item_id}")
+            # Quick defensive re-check: if target collection already at/over limit, abort early
+            # (A parallel process or manual action might have filled it meanwhile)
+            # We fetch a minimal indicator by opening the collection dialog later and counting selected entries is heavy;
+            # instead rely on caller's map. This is just a placeholder for future enhancement.
             WebDriverWait(driver, 5).until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, ".general_btn[onclick*='AddToCollection']"))
             ).click()
@@ -156,16 +198,24 @@ if __name__ == "__main__":
             current_items_map = {}
         # Add missing items, filling collections up to the max
         for item in missing_items:
-            placed = False
-            for col_id in collections:
-                if len(current_items_map.get(col_id, [])) < config.MAX_COLLECTION_ITEMS:
-                    add_to_collection(driver, item, col_id)
-                    current_items_map[col_id].add(item)
-                    placed = True
-                    break
-            if not placed:
-                print(f"All collections for '{tag}' are full (limit {config.MAX_COLLECTION_ITEMS}). Stopping addition.")
+            target_col = select_best_collection(current_items_map, config.MAX_COLLECTION_ITEMS)
+            if not target_col:
+                print(f"All collections for '{tag}' are at or over limit ({config.MAX_COLLECTION_ITEMS}). Stopping addition.")
                 break
+            if len(current_items_map[target_col]) >= config.MAX_COLLECTION_ITEMS:
+                print(f"Target collection {target_col} unexpectedly full. Re-evaluating...")
+                continue
+            add_to_collection(driver, item, target_col)
+            current_items_map[target_col].add(item)
+            if len(current_items_map[target_col]) >= config.MAX_COLLECTION_ITEMS:
+                print(f"Collection {target_col} reached max capacity ({config.MAX_COLLECTION_ITEMS}).")
+            else:
+                remaining = config.MAX_COLLECTION_ITEMS - len(current_items_map[target_col])
+                if remaining <= 25:  # Near limit: refresh true count to avoid drift
+                    refreshed = get_collection_items(driver, target_col)
+                    current_items_map[target_col] = refreshed
+                    if len(refreshed) >= config.MAX_COLLECTION_ITEMS:
+                        print(f"Collection {target_col} reached/ exceeded max after refresh ({len(refreshed)}) - stopping additions to it.")
         # Update cache and quit
         cache[tag] = list(prev_items.union(workshop_items))
         save_cache(cache)
