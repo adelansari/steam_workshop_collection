@@ -40,18 +40,32 @@ def main():
                 # Determine items missing across all collections
                 missing_items = [i for i in workshop_items if i not in total_current]
                 print(f"Total missing {len(missing_items)} item(s) for '{tag}'. Distributing across {len(collections)} collections.")
-                # Add items to collections up to max limit
+                # Helper: select collection with most remaining capacity
+                def select_best_collection(cmap, limit):
+                    best_id = None
+                    best_remaining = -1
+                    for cid, items in cmap.items():
+                        remaining = limit - len(items)
+                        if remaining > best_remaining and remaining > 0:
+                            best_remaining = remaining
+                            best_id = cid
+                    return best_id
                 for item in missing_items:
-                    placed = False
-                    for col_id in collections:
-                        if len(current_items_map[col_id]) < config.MAX_COLLECTION_ITEMS:
-                            add_to_collection(driver, item, col_id)
-                            current_items_map[col_id].add(item)
-                            placed = True
-                            break
-                    if not placed:
-                        print(f"All collections for '{tag}' are full (limit {config.MAX_COLLECTION_ITEMS}). Stopping addition.")
+                    target_col = select_best_collection(current_items_map, config.MAX_COLLECTION_ITEMS)
+                    if not target_col:
+                        print(f"All collections for '{tag}' are at or over limit ({config.MAX_COLLECTION_ITEMS}). Stopping addition.")
                         break
+                    add_to_collection(driver, item, target_col)
+                    current_items_map[target_col].add(item)
+                    if len(current_items_map[target_col]) >= config.MAX_COLLECTION_ITEMS:
+                        print(f"Collection {target_col} reached max capacity ({config.MAX_COLLECTION_ITEMS}).")
+                    else:
+                        remaining = config.MAX_COLLECTION_ITEMS - len(current_items_map[target_col])
+                        if remaining <= 25:  # Near limit: re-fetch to correct any lazy-load drift
+                            refreshed = get_collection_items(driver, target_col)
+                            current_items_map[target_col] = set(refreshed)
+                            if len(refreshed) >= config.MAX_COLLECTION_ITEMS:
+                                print(f"Collection {target_col} reached/ exceeded max after refresh ({len(refreshed)}). Will not add more to this collection.")
                 # Update cache only if new items were added for this tag
                 new_items = prev_items.union(workshop_items)
                 if new_items != prev_items:
