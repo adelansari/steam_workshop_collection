@@ -88,7 +88,12 @@ def main():
                 any_added = False
                 for col_id, items_set in current_items_map.items():
                     cache.setdefault(tag, {})
-                    before = len(cache[tag].get(col_id, set())) if isinstance(cache[tag].get(col_id), set) else 0
+                    prev_cached = cache[tag].get(col_id, set())
+                    before = len(prev_cached) if isinstance(prev_cached, set) else 0
+                    # Safeguard: avoid overwriting with empty scrape if we previously had data (likely transient failure)
+                    if len(items_set) == 0 and before > 0:
+                        print(f"  WARN: Skipping cache overwrite for {col_id}; scraped 0 but cache has {before} (transient load?)")
+                        items_set = prev_cached
                     cache[tag][col_id] = items_set
                     if len(items_set) > before:
                         any_added = True

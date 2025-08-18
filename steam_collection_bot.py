@@ -114,6 +114,20 @@ def get_collection_items(driver, col_id):
             break
     elements = driver.find_elements(By.CSS_SELECTOR, ".collectionItem a[href*='filedetails/?id=']")
     items = {e.get_attribute("href").split("id=")[1].split("&")[0] for e in elements if e.get_attribute("href")}
+    # Retry once if zero items (possible transient load or different layout timing)
+    if len(items) == 0:
+        try:
+            time.sleep(1)
+            driver.refresh()
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, ".collectionChildren"))
+            )
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(0.5)
+            elements = driver.find_elements(By.CSS_SELECTOR, ".collectionItem a[href*='filedetails/?id=']")
+            items = {e.get_attribute("href").split("id=")[1].split("&")[0] for e in elements if e.get_attribute("href")}
+        except Exception:
+            pass
     print(f"Collection {col_id} reported {len(items)} fully-loaded item(s)")
     if len(items) > config.MAX_COLLECTION_ITEMS:
         print(f"WARNING: Collection {col_id} currently exceeds MAX_COLLECTION_ITEMS ({config.MAX_COLLECTION_ITEMS}). No further additions will be made to this collection.")
