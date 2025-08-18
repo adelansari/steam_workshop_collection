@@ -10,37 +10,59 @@ import config
 
 os.environ['WDM_LOCAL'] = '1'
 os.environ['WDM_SSL_VERIFY'] = '0'
-# Cache directory for per-tag JSON files
+# Cache directory root
 CACHE_DIR = config.CACHE_DIR
 
+# ---------------- Cache Handling (Per-tag / per-collection) ---------------- #
+
 def load_cache():
-    """Load workshop items cache from per-tag JSON files in cache directory."""
+    """Load cache into nested dict: { tag: { collection_id: set(item_ids) } }.
+
+    Expects directory layout:
+        cache/<Tag>/<CollectionID>.json
+    Each JSON file contains a list of workshop item IDs.
+    """
     cache = {}
     try:
-        for fname in os.listdir(CACHE_DIR):
-            if fname.endswith('.json'):
-                tag = fname[:-5]
-                path = os.path.join(CACHE_DIR, fname)
+        for tag in os.listdir(CACHE_DIR):
+            tag_dir = os.path.join(CACHE_DIR, tag)
+            if not os.path.isdir(tag_dir):
+                continue
+            for fname in os.listdir(tag_dir):
+                if not fname.endswith('.json'):
+                    continue
+                cid = fname[:-5]
+                fpath = os.path.join(tag_dir, fname)
                 try:
-                    with open(path, 'r') as f:
-                        cache[tag] = json.load(f)
+                    with open(fpath, 'r') as f:
+                        items = json.load(f)
+                    if isinstance(items, list):
+                        cache.setdefault(tag, {})[cid] = set(items)
                 except Exception:
                     pass
     except Exception:
         pass
     return cache
 
-
 def save_cache(cache):
-    """Save workshop items cache to per-tag JSON files in cache directory."""
-    for tag, items in cache.items():
-        path = os.path.join(CACHE_DIR, f"{tag}.json")
-        try:
-            # Preserve list order; newly added items remain at the end
-            with open(path, 'w') as f:
-                json.dump(items, f, indent=2)
-        except Exception:
-            pass
+    for tag, collections in cache.items():
+        tag_dir = os.path.join(CACHE_DIR, tag)
+        os.makedirs(tag_dir, exist_ok=True)
+        for cid, items in collections.items():
+            fpath = os.path.join(tag_dir, f"{cid}.json")
+            try:
+                with open(fpath, 'w') as f:
+                    json.dump(sorted(items), f, indent=2)
+            except Exception:
+                pass
+
+def get_existing_items_for_tag(cache, tag):
+    if tag not in cache:
+        return set()
+    union = set()
+    for items in cache[tag].values():
+        union.update(items)
+    return union
 
 def choose_collection():
     print("Select which collection tag to update:")
@@ -175,7 +197,7 @@ if __name__ == "__main__":
     try:
         tag = choose_collection()
         cache = load_cache()
-        prev_items = set(cache.get(tag, []))
+        prev_items = get_existing_items_for_tag(cache, tag)
         driver = config.configure_edge()
         try:
             # Gather current items for each collection of this tag
@@ -184,8 +206,11 @@ if __name__ == "__main__":
             total_current = set()
             for col_id in collections:
                 items = get_collection_items(driver, col_id)
-                current_items_map[col_id] = items
+                current_items_map[col_id] = set(items)
                 total_current.update(items)
+                # Seed cache structure for this tag/collection
+                cache.setdefault(tag, {})
+                cache[tag].setdefault(col_id, set()).update(items)
             # Scrape new workshop items
             workshop_items = get_workshop_items(driver, tag, prev_items)
             # Determine missing items across all collections
@@ -213,11 +238,13 @@ if __name__ == "__main__":
                 remaining = config.MAX_COLLECTION_ITEMS - len(current_items_map[target_col])
                 if remaining <= 25:  # Near limit: refresh true count to avoid drift
                     refreshed = get_collection_items(driver, target_col)
-                    current_items_map[target_col] = refreshed
+                    current_items_map[target_col] = set(refreshed)
                     if len(refreshed) >= config.MAX_COLLECTION_ITEMS:
                         print(f"Collection {target_col} reached/ exceeded max after refresh ({len(refreshed)}) - stopping additions to it.")
-        # Update cache and quit
-        cache[tag] = list(prev_items.union(workshop_items))
+        # Persist per-collection caches (updated current_items_map includes any new additions)
+        for col_id, items in current_items_map.items():
+            cache.setdefault(tag, {})
+            cache[tag][col_id] = items
         save_cache(cache)
         driver.quit()
     except KeyboardInterrupt:
