@@ -12,7 +12,8 @@ from steam_collection_bot import (
     save_cache,
     get_collection_items,
     get_workshop_items,
-    add_to_collection
+    add_to_collection,
+    get_existing_items_for_tag
 )
 
 def main():
@@ -26,7 +27,7 @@ def main():
     try:
         for tag, collections in config.COLLECTION_IDS.items():
             print(f"\nProcessing tag '{tag}' (collections: {collections})...")
-            prev_items = set(cache.get(tag, []))
+            prev_items = get_existing_items_for_tag(cache, tag)
             try:
                 # Gather current items for each collection and total
                 current_items_map = {}
@@ -66,10 +67,15 @@ def main():
                             current_items_map[target_col] = set(refreshed)
                             if len(refreshed) >= config.MAX_COLLECTION_ITEMS:
                                 print(f"Collection {target_col} reached/ exceeded max after refresh ({len(refreshed)}). Will not add more to this collection.")
-                # Update cache only if new items were added for this tag
-                new_items = prev_items.union(workshop_items)
-                if new_items != prev_items:
-                    cache[tag] = list(new_items)
+                # Persist per-collection cache if additions occurred
+                any_added = False
+                for col_id, items_set in current_items_map.items():
+                    cache.setdefault(tag, {})
+                    before = len(cache[tag].get(col_id, set())) if isinstance(cache[tag].get(col_id), set) else 0
+                    cache[tag][col_id] = items_set
+                    if len(items_set) > before:
+                        any_added = True
+                if any_added:
                     cache_changed = True
             except Exception as e:
                 print(f"Error processing tag '{tag}': {e}")
