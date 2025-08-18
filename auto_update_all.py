@@ -24,17 +24,14 @@ def main():
     cache = load_cache()
     cache_changed = False
     driver = config.configure_edge()
-    added_summary = {}  # tag -> count added this run
+    added_summary = {}   # tag -> items actually added (sum over its collections)
+    added_by_collection = {}  # tag -> {collection_id: added_count}
+    verbose = os.getenv("BOT_VERBOSE", "0") not in ("0", "false", "False")
     try:
-        processed_tags = set()
         all_tags = list(config.COLLECTION_IDS.items())
         total_tags = len(all_tags)
         for idx, (tag, collections) in enumerate(all_tags, start=1):
-            if tag in processed_tags:
-                print(f"[SKIP] Tag '{tag}' already processed this run.")
-                continue
-            processed_tags.add(tag)
-            print(f"\n[{idx}/{total_tags}] Processing tag '{tag}' (collections: {collections})")
+            print(f"\n[{idx}/{total_tags}] {tag} -> {len(collections)} collection(s)")
             prev_items = get_existing_items_for_tag(cache, tag)
             try:
                 # Gather current items for each collection and total
@@ -44,12 +41,14 @@ def main():
                     items = get_collection_items(driver, col_id)
                     current_items_map[col_id] = set(items)
                     total_current.update(items)
-                    print(f"  Collection {col_id}: {len(items)} items (remaining {config.MAX_COLLECTION_ITEMS - len(items)})")
+                    if verbose:
+                        print(f"  {col_id}: {len(items)} items (remain {config.MAX_COLLECTION_ITEMS - len(items)})")
                 # Scrape new workshop items based on cache
                 workshop_items = get_workshop_items(driver, tag, prev_items)
                 # Determine items missing across all collections
                 missing_items = [i for i in workshop_items if i not in total_current]
-                print(f"  Missing {len(missing_items)} new item(s) for '{tag}' across {len(collections)} collection(s)")
+                if verbose:
+                    print(f"  Missing (not yet in any collection): {len(missing_items)}")
                 # Helper: select collection with most remaining capacity
                 def select_best_collection(cmap, limit):
                     best_id = None
@@ -67,23 +66,26 @@ def main():
                         continue
                     target_col = select_best_collection(current_items_map, config.MAX_COLLECTION_ITEMS)
                     if not target_col:
-                        print(f"  All collections for '{tag}' are at/over limit ({config.MAX_COLLECTION_ITEMS}). Stopping additions.")
+                        if verbose:
+                            print(f"  All collections full (limit {config.MAX_COLLECTION_ITEMS})")
                         break
                     before = len(current_items_map[target_col])
                     add_to_collection(driver, item, target_col)
                     current_items_map[target_col].add(item)
                     after = len(current_items_map[target_col])
                     added_counter += 1 if after > before else 0
-                    print(f"    Added {item} -> {target_col} ({after}/{config.MAX_COLLECTION_ITEMS})")
-                    if len(current_items_map[target_col]) >= config.MAX_COLLECTION_ITEMS:
-                        print(f"    Collection {target_col} reached capacity {config.MAX_COLLECTION_ITEMS}.")
-                    else:
-                        remaining = config.MAX_COLLECTION_ITEMS - len(current_items_map[target_col])
-                        if remaining <= 25:  # Near limit: re-fetch to correct any lazy-load drift
-                            refreshed = get_collection_items(driver, target_col)
-                            current_items_map[target_col] = set(refreshed)
-                            if len(refreshed) >= config.MAX_COLLECTION_ITEMS:
-                                print(f"    Collection {target_col} reached/exceeded max after refresh ({len(refreshed)}). Further adds blocked.")
+                    if verbose:
+                        print(f"    + {item} -> {target_col} ({after})")
+                    added_by_collection.setdefault(tag, {}).setdefault(target_col, 0)
+                    if after > before:
+                        added_by_collection[tag][target_col] += 1
+                    # Near limit revalidation (silent unless verbose)
+                    remaining_slots = config.MAX_COLLECTION_ITEMS - len(current_items_map[target_col])
+                    if 0 < remaining_slots <= 25:
+                        refreshed = get_collection_items(driver, target_col)
+                        current_items_map[target_col] = set(refreshed)
+                        if len(refreshed) >= config.MAX_COLLECTION_ITEMS and verbose:
+                            print(f"    {target_col} reached cap after refresh ({len(refreshed)})")
                 # Persist per-collection cache if additions occurred
                 any_added = False
                 for col_id, items_set in current_items_map.items():
@@ -92,16 +94,21 @@ def main():
                     before = len(prev_cached) if isinstance(prev_cached, set) else 0
                     # Safeguard: avoid overwriting with empty scrape if we previously had data (likely transient failure)
                     if len(items_set) == 0 and before > 0:
-                        print(f"  WARN: Skipping cache overwrite for {col_id}; scraped 0 but cache has {before} (transient load?)")
+                        if verbose:
+                            print(f"  WARN skip empty overwrite {col_id} (had {before})")
                         items_set = prev_cached
                     cache[tag][col_id] = items_set
                     if len(items_set) > before:
                         any_added = True
                 if any_added:
                     cache_changed = True
-                summary_states = " | ".join(f"{cid}:{len(current_items_map[cid])}" for cid in collections)
-                print(f"  Tag '{tag}' summary: added {added_counter} item(s). Collection states: {summary_states}")
                 added_summary[tag] = added_counter
+                # Compact non-verbose summary line (only show tag additions); verbose shows collection sizes
+                if verbose:
+                    col_states = ",".join(f"{cid}={len(current_items_map[cid])}" for cid in collections)
+                    print(f"  {tag}: +{added_counter} | {col_states}")
+                else:
+                    print(f"  {tag}: +{added_counter}")
             except Exception as e:
                 print(f"Error processing tag '{tag}': {e}")
     except KeyboardInterrupt:
@@ -110,22 +117,22 @@ def main():
     finally:
         driver.quit()
         # Only save and commit if cache was updated
-        if cache_changed:
+        total_added = sum(added_summary.values())
+        if cache_changed and total_added > 0:
             save_cache(cache)
             # Commit and push any changes to GitHub
             try:
                 subprocess.run(["git", "add", "-A"], check=True)
-                # Build dynamic commit message summarizing additions
-                non_zero = {t: c for t, c in added_summary.items() if c > 0}
-                if non_zero:
-                    # Header line
-                    header_parts = []
-                    for tag, count in non_zero.items():
-                        header_parts.append(f"{tag}+{count}")
-                    header = "update: added " + ", ".join(header_parts)
-                else:
-                    header = "chore: update cache (no net new items)"
-                # Only header commit (no per-collection size details)
+                # Build commit message summarizing per-collection additions
+                per_collection_parts = []
+                for tag, col_map in added_by_collection.items():
+                    for cid, cnt in col_map.items():
+                        if cnt > 0:
+                            per_collection_parts.append(f"{tag}:{cid}+{cnt}")
+                if not per_collection_parts:
+                    print("No per-collection additions detected; skipping commit.")
+                    return
+                header = "update: " + " ".join(per_collection_parts)
                 commit_cmd = ["git", "commit", "-m", header]
                 subprocess.run(commit_cmd, check=True)
                 subprocess.run(["git", "push"], check=True)
@@ -133,7 +140,10 @@ def main():
             except subprocess.CalledProcessError as e:
                 print(f"Git operation failed: {e}")
         else:
-            print("No new items added; skipping cache save and git commit.")
+            if total_added == 0:
+                print("No additions; skipped commit.")
+            else:
+                print("Changes detected but commit skipped (unexpected state).")
 
 if __name__ == "__main__":
     main()
