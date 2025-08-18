@@ -6,20 +6,23 @@ A Python automation script mainly designed for **The Karters 2: Turbo Charged**.
 
 ## Overview
 
-This tool automates the process of keeping your Steam collection up-to-date by:
-- Browsing through specific Steam Workshop pages.
-- Extracting unique item IDs based on tags.
-- Scraping your current collection.
-- Adding only the missing items to your collection.
+This tool automates keeping multiple Steam Workshop collections in sync with the newest uploads for configured tags. It:
+- Loads every configured collection for a tag (with full lazy-load scrolling) to get an accurate current item set.
+- Scrapes the Workshop (most recent first) and stops as soon as it reaches a page containing only already-known items (early stopping for speed).
+- Computes which scraped items are not yet present in any of the tag's collections.
+- Adds those missing items while balancing across multiple collections, always respecting a hard per‑collection cap (`MAX_COLLECTION_ITEMS`).
+- Saves lightweight per‑collection cache files for fast subsequent runs.
 
 The automation uses Selenium with Microsoft Edge WebDriver, using your existing Edge browser profile for a seamless Steam login experience.
 
 ## Features
 
-- **Steam Workshop Integration:** Targets The Karters 2: Turbo Charged Workshop (configurable for other games).
-- **Collection Synchronization:** Compares workshop items with your collection and adds only the missing ones.
-- **Optimized Navigation:** Handles pagination and improves performance by minimizing delays.
-- **Adaptability:** Easy to update URLs and settings via the configuration file (`config.py`).
+- **Accurate Collection Counting:** Scrolls to fully load lazy-loaded items before counting.
+- **Per‑Collection Hard Limit:** Respects `MAX_COLLECTION_ITEMS` (e.g. 969) and avoids overshoot via near‑limit revalidation.
+- **Balanced Distribution:** Chooses the collection with the most remaining capacity instead of filling one fully first.
+- **Early Stop Workshop Scrape:** Stops paging once a page contains no new IDs, avoiding unnecessary deep history fetches.
+- **Per‑Collection Caching:** One JSON file per collection; simple, fast, and scalable to thousands of items.
+- **Configurable & Game-Agnostic:** Adjust a few constants to target another game's Workshop tags and collections.
 
 ## Prerequisites
 
@@ -46,33 +49,70 @@ The automation uses Selenium with Microsoft Edge WebDriver, using your existing 
 
 ## Configuration
 
-This project consists of two main files:
+Key files:
 
-  - **config.py:** Centralizes configuration settings. Update the following variables as needed:
-  - `EDGE_PROFILE_PATH`: Path to your Edge user data profile.
-  - `EDGE_DRIVER_PATH`: Path to your Edge WebDriver executable.
-  - `COLLECTION_IDS`: Dictionary mapping collection names (e.g., "Characters", "Vehicles", "Tracks") to their Steam collection IDs.
-  - **Cache Storage:** Cache files are now stored per tag in the `cache/` folder, with each tag in its own JSON file. You can clear or inspect these files independently.
-  - `WORKSHOP_BASE_URL` & `SHARED_FILE_DETAILS_URL`: Base URLs for Steam Workshop and shared file details. Update as appropriate to target other games.
+### `config.py`
+Edit these values:
+- `MAX_COLLECTION_ITEMS`: Hard cap per Steam collection (e.g. 969). Script will not add beyond this.
+- `COLLECTION_IDS`: Map of tag -> list of Steam collection IDs. Example:
+   ```python
+   COLLECTION_IDS = {
+         "Characters": ["3445105194", "3531743955"],
+         "Vehicles": ["3444831495"],
+         "Tracks": ["3445118133"],
+         "Wheels": ["3530392942"],
+   }
+   ```
+- `EDGE_DRIVER_PATH`: Path to `msedgedriver.exe`.
+- `WORKSHOP_BASE_URL` and `SHARED_FILE_DETAILS_URL`: Adjust for other games.
 
-- **steam_collection_bot.py:** Contains the main logic that:
-  - Prompts you to select a collection.
-  - Scrapes current workshop and collection items.
-  - Adds missing items to your collection.
+### Cache Layout
+Fresh runs create:
+```
+cache/
+   Characters/
+      3445105194.json
+      3531743955.json
+   Vehicles/
+      3444831495.json
+   Tracks/
+      3445118133.json
+   Wheels/
+      3530392942.json
+```
+Each file = JSON array of item ID strings currently tracked for that collection. You may delete any file/folder to force a re-sync for that specific collection without affecting others.
+
+### `steam_collection_bot.py`
+Interactive single-tag updater. Prompts for a tag, then syncs missing items into that tag's collections.
+
+### `auto_update_all.py`
+Batch mode: iterates all tags in `COLLECTION_IDS` and performs the same sync logic unattended (use in scheduled tasks / cron / Windows Task Scheduler).
 
 ## Usage
 
-1. **Ensure you are logged into Steam** via your Microsoft Edge profile.
-2. **Run the script:**
-   ```bash
-   python steam_collection_bot.py
-   ```
-3. **Follow the prompt** to select which collection to update. The script will then:
-   - Launch Edge using your configured profile.
-   - Scrape the Workshop for items tagged for The Karters 2: Turbo Charged.
-   - Compare scraped items with your current collection.
-   - Automatically add missing items to your collection.
-   - Exit once completed.
+Interactive (single tag):
+```bash
+python steam_collection_bot.py
+```
+Batch (all tags):
+```bash
+python auto_update_all.py
+```
+
+Workflow per tag:
+1. Load all configured collections for the tag (fully scroll to count accurately).
+2. Union their item IDs (baseline set of known IDs).
+3. Scrape Workshop pages (most recent first) until a page yields zero new IDs.
+4. Determine missing IDs (not in any collection yet).
+5. Add them, choosing the collection with the most remaining capacity each time.
+6. Near the limit (<=25 slots), re-fetch that collection to guard against lazy-load undercounts.
+7. Persist per-collection JSON files.
+
+Stopping conditions:
+- All collections for the tag reach `MAX_COLLECTION_ITEMS`, or
+- No new Workshop items found beyond what you already have.
+
+If a collection is already over the configured limit (e.g., due to past manual additions), the script skips adding to it and logs a warning—you can manually trim if needed.
 
 ## Auto-run the subscription script before launching the game
 
@@ -89,8 +129,14 @@ This will first execute `subscribe_collection.py` and then launch the game.
 
 ## Adaptation
 
-While this tool is tailored for **The Karters 2: Turbo Charged**, you can easily adapt it for other games by updating the configuration settings in `config.py`, particularly:
-- Changing `WORKSHOP_BASE_URL` to match the target game's Steam Workshop URL.
-- Updating `COLLECTION_IDS` to correspond with the correct Steam collection for the new game.
+To adapt for another game:
+- Update `WORKSHOP_BASE_URL` to the new app's Workshop browse URL and adjust required tag parameter if different.
+- Set the new collection IDs in `COLLECTION_IDS` for the relevant tags.
+- Adjust `MAX_COLLECTION_ITEMS` if the target game’s practical collection limit differs.
 
-Enjoy automating your Steam collection updates!
+Optional enhancements you could add:
+- Historical deep backfill (continue N extra pages past first all-known page).
+- Collection trim utility for over-limit repair.
+- Summary report (counts + newly added IDs) per run.
+
+Enjoy automating your Steam Workshop collections!
