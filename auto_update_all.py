@@ -49,16 +49,12 @@ def main():
                 missing_items = [i for i in workshop_items if i not in total_current]
                 if verbose:
                     print(f"  Missing (not yet in any collection): {len(missing_items)}")
-                # Helper: select collection with most remaining capacity
+                # Select next collection in declared order that still has capacity
                 def select_best_collection(cmap, limit):
-                    best_id = None
-                    best_remaining = -1
-                    for cid, items in cmap.items():
-                        remaining = limit - len(items)
-                        if remaining > best_remaining and remaining > 0:
-                            best_remaining = remaining
-                            best_id = cid
-                    return best_id
+                    for cid in collections:  # preserve original order
+                        if limit - len(cmap[cid]) > 0:
+                            return cid
+                    return None
                 added_counter = 0
                 for item in missing_items:
                     # Defensive: skip if somehow already added earlier in loop
@@ -74,13 +70,13 @@ def main():
                     current_items_map[target_col].add(item)
                     after = len(current_items_map[target_col])
                     added_counter += 1 if after > before else 0
-                    if verbose:
-                        print(f"    + {item} -> {target_col} ({after})")
+                    remaining_slots = config.MAX_COLLECTION_ITEMS - after
+                    status_note = "FULL" if remaining_slots == 0 else f"{remaining_slots} left"
+                    print(f"    + {item} -> {target_col} ({after}/{config.MAX_COLLECTION_ITEMS}, {status_note})")
                     added_by_collection.setdefault(tag, {}).setdefault(target_col, 0)
                     if after > before:
                         added_by_collection[tag][target_col] += 1
                     # Near limit revalidation (silent unless verbose)
-                    remaining_slots = config.MAX_COLLECTION_ITEMS - len(current_items_map[target_col])
                     if 0 < remaining_slots <= 25:
                         refreshed = get_collection_items(driver, target_col)
                         current_items_map[target_col] = set(refreshed)
@@ -103,12 +99,15 @@ def main():
                 if any_added:
                     cache_changed = True
                 added_summary[tag] = added_counter
-                # Compact non-verbose summary line (only show tag additions); verbose shows collection sizes
-                if verbose:
-                    col_states = ",".join(f"{cid}={len(current_items_map[cid])}" for cid in collections)
-                    print(f"  {tag}: +{added_counter} | {col_states}")
-                else:
-                    print(f"  {tag}: +{added_counter}")
+                # Summary line with distribution and fill status
+                col_states_parts = []
+                for cid in collections:
+                    count = len(current_items_map[cid])
+                    rem = config.MAX_COLLECTION_ITEMS - count
+                    fill_flag = "FULL" if rem == 0 else f"{rem} left"
+                    col_states_parts.append(f"{cid}={count}/{config.MAX_COLLECTION_ITEMS}({fill_flag})")
+                col_states = ", ".join(col_states_parts)
+                print(f"  {tag}: +{added_counter} | {col_states}")
             except Exception as e:
                 print(f"Error processing tag '{tag}': {e}")
     except KeyboardInterrupt:
