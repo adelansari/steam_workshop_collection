@@ -18,7 +18,7 @@ MAX_COLLECTION_ITEMS = 969
 
 # Collection IDs for each collection name; use lists to support multiple collections per tag
 COLLECTION_IDS = {
-    "Characters": ["3445105194", "3531743955"],
+    "Characters": ["3445105194", "3531743955", "3573789008"],
     "Vehicles": ["3444831495"],
     "Tracks": ["3445118133"],
     "Wheels": ["3530392942"],
