@@ -2,7 +2,8 @@
 
 A Python automation script mainly designed for **The Karters 2: Turbo Charged**. The script scrapes the Steam Workshop for items matching specified criteria and automatically adds the missing ones to your designated collection. It can also be adapted for other games and workshop items by modifying the configuration settings.
 
-![Script Demo Screenshot](ScriptDemo.jpg)
+![Script Preview Screenshot](assets/ScriptDemo.jpg)
+![Script Preview Screenshot](assets/UpdateAllPreview.jpg)
 
 ## Overview
 
