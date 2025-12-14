@@ -43,12 +43,11 @@ def main():
                     total_current.update(items)
                     if verbose:
                         print(f"  {col_id}: {len(items)} items (remain {config.MAX_COLLECTION_ITEMS - len(items)})")
-                # Scrape new workshop items based on cache
-                workshop_items = get_workshop_items(driver, tag, prev_items)
+                # Scrape new workshop items using the live union of items (prevents stale cache from flagging already-present items as "new")
+                workshop_items = get_workshop_items(driver, tag, total_current)
                 # Determine items missing across all collections
                 missing_items = [i for i in workshop_items if i not in total_current]
-                if verbose:
-                    print(f"  Missing (not yet in any collection): {len(missing_items)}")
+                print(f"  Missing (not yet in any collection): {len(missing_items)}")
                 # Select next collection in declared order that still has capacity
                 def select_best_collection(cmap, limit):
                     for cid in collections:  # preserve original order
