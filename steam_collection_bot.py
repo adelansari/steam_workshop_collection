@@ -1,3 +1,13 @@
+"""
+Steam Collection Bot - Simplified and Robust
+
+Key principles:
+1. Once a collection is marked FULL, never add to it again (persisted in locked_collections.json)
+2. Cache only grows - never overwrite with smaller data
+3. add_to_collection returns True/False so we know if it actually worked
+4. Fill collections in order: first one until full, then next, etc.
+"""
+
 import os
 import sys
 import time
@@ -8,20 +18,48 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 import config
 
-os.environ['WDM_LOCAL'] = '1'
-os.environ['WDM_SSL_VERIFY'] = '0'
-# Cache directory root
 CACHE_DIR = config.CACHE_DIR
+LOCKED_FILE = os.path.join(config.BASE_DIR, "locked_collections.json")
 
-# ---------------- Cache Handling (Per-tag / per-collection) ---------------- #
+
+# ---------------------- Locked Collections ---------------------- #
+
+def load_locked_collections():
+    """Load set of collection IDs that are permanently full."""
+    if os.path.exists(LOCKED_FILE):
+        try:
+            with open(LOCKED_FILE, 'r') as f:
+                data = json.load(f)
+                return set(str(i) for i in data) if isinstance(data, list) else set()
+        except Exception:
+            pass
+    return set()
+
+
+def save_locked_collections(locked):
+    """Persist locked collection IDs."""
+    with open(LOCKED_FILE, 'w') as f:
+        json.dump(sorted(locked), f, indent=2)
+
+
+def lock_collection(col_id):
+    """Mark a collection as permanently full."""
+    locked = load_locked_collections()
+    if str(col_id) not in locked:
+        locked.add(str(col_id))
+        save_locked_collections(locked)
+        print(f"  🔒 LOCKED collection {col_id} - will never add to it again")
+
+
+def is_collection_locked(col_id):
+    """Check if a collection is locked."""
+    return str(col_id) in load_locked_collections()
+
+
+# ---------------------- Cache Handling ---------------------- #
 
 def load_cache():
-    """Load cache into nested dict: { tag: { collection_id: set(item_ids) } }.
-
-    Expects directory layout:
-        cache/<Tag>/<CollectionID>.json
-    Each JSON file contains a list of workshop item IDs.
-    """
+    """Load cache: { tag: { collection_id: set(item_ids) } }"""
     cache = {}
     try:
         for tag in os.listdir(CACHE_DIR):
@@ -37,54 +75,41 @@ def load_cache():
                     with open(fpath, 'r') as f:
                         items = json.load(f)
                     if isinstance(items, list):
-                        cache.setdefault(tag, {})[cid] = set(items)
+                        cache.setdefault(tag, {})[cid] = set(str(i) for i in items)
                 except Exception:
                     pass
     except Exception:
         pass
     return cache
 
+
 def save_cache(cache):
+    """Save cache to disk."""
     for tag, collections in cache.items():
         tag_dir = os.path.join(CACHE_DIR, tag)
         os.makedirs(tag_dir, exist_ok=True)
         for cid, items in collections.items():
             fpath = os.path.join(tag_dir, f"{cid}.json")
-            try:
-                with open(fpath, 'w') as f:
-                    json.dump(sorted(items), f, indent=2)
-            except Exception:
-                pass
+            with open(fpath, 'w') as f:
+                json.dump(sorted(items), f, indent=2)
 
-def get_existing_items_for_tag(cache, tag):
+
+def get_all_cached_items_for_tag(cache, tag):
+    """Get union of all cached items across all collections for a tag."""
     if tag not in cache:
         return set()
-    union = set()
+    result = set()
     for items in cache[tag].values():
-        union.update(items)
-    return union
+        result.update(items)
+    return result
 
-def choose_collection():
-    print("Select which collection tag to update:")
-    options = list(config.COLLECTION_IDS.keys())
-    for idx, option in enumerate(options, start=1):
-        print(f"{idx}. {option}")
-    try:
-        choice = int(input(f"Enter your choice (1-{len(options)}): ").strip())
-        selected = options[choice - 1]
-    except (ValueError, IndexError):
-        selected = options[0]
-        print("Invalid choice. Defaulting to the first option.")
-    print(f"Updating collections for '{selected}'...")
-    return selected
+
+# ---------------------- Steam Scraping ---------------------- #
 
 def get_collection_items(driver, col_id):
-    """Return full set of item IDs in a collection, attempting to lazy-load all items.
-
-    Steam collection pages often lazy load items when scrolling. The previous implementation
-    only counted the initially loaded DOM nodes which could significantly under-report the
-    true count. That under-count let the script believe there was remaining capacity and
-    push the collection beyond the intended MAX_COLLECTION_ITEMS.
+    """
+    Scrape all item IDs from a Steam collection.
+    Returns a set of item IDs (strings), or None on failure.
     """
     driver.get(f"{config.SHARED_FILE_DETAILS_URL}{col_id}")
     try:
@@ -92,175 +117,126 @@ def get_collection_items(driver, col_id):
             EC.presence_of_element_located((By.CSS_SELECTOR, ".collectionChildren"))
         )
     except TimeoutException:
-        print("Failed to load collection items container for collection", col_id)
-        return set()
+        print(f"  Failed to load collection {col_id}")
+        return None  # Return None to indicate failure, not empty set
 
+    # Scroll to load all items (Steam lazy-loads)
     last_count = -1
-    stable_iterations = 0
-    max_stable_needed = 2
-    start_time = time.time()
-    timeout = 45
-    while time.time() - start_time < timeout and stable_iterations < max_stable_needed:
+    stable = 0
+    start = time.time()
+    while time.time() - start < 60 and stable < 3:
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(0.4)
+        time.sleep(0.5)
         elements = driver.find_elements(By.CSS_SELECTOR, ".collectionItem a[href*='filedetails/?id=']")
-        current_count = len(elements)
-        if current_count == last_count:
-            stable_iterations += 1
+        count = len(elements)
+        if count == last_count:
+            stable += 1
         else:
-            stable_iterations = 0
-        last_count = current_count
-        if current_count >= config.MAX_COLLECTION_ITEMS + 5:
-            break
+            stable = 0
+        last_count = count
+
     elements = driver.find_elements(By.CSS_SELECTOR, ".collectionItem a[href*='filedetails/?id=']")
-    items = {e.get_attribute("href").split("id=")[1].split("&")[0] for e in elements if e.get_attribute("href")}
-    # Retry once if zero items (possible transient load or different layout timing)
-    if len(items) == 0:
-        try:
-            time.sleep(1)
-            driver.refresh()
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, ".collectionChildren"))
-            )
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(0.5)
-            elements = driver.find_elements(By.CSS_SELECTOR, ".collectionItem a[href*='filedetails/?id=']")
-            items = {e.get_attribute("href").split("id=")[1].split("&")[0] for e in elements if e.get_attribute("href")}
-        except Exception:
-            pass
-    print(f"Collection {col_id} reported {len(items)} fully-loaded item(s)")
-    if len(items) > config.MAX_COLLECTION_ITEMS:
-        print(f"WARNING: Collection {col_id} currently exceeds MAX_COLLECTION_ITEMS ({config.MAX_COLLECTION_ITEMS}). No further additions will be made to this collection.")
+    items = set()
+    for e in elements:
+        href = e.get_attribute("href")
+        if href and "id=" in href:
+            item_id = href.split("id=")[1].split("&")[0]
+            items.add(item_id)
+
     return items
 
-def select_best_collection(current_items_map, max_limit):
-    """Return collection id with most remaining capacity (or None if all full)."""
-    best_id = None
-    best_remaining = -1
-    for cid, items in current_items_map.items():
-        remaining = max_limit - len(items)
-        if remaining > best_remaining and remaining > 0:
-            best_remaining = remaining
-            best_id = cid
-    return best_id
 
-def get_workshop_items(driver, tag, existing_items=None):
-    """Scrape workshop items sorted by most recent, stopping when encountering only cached items."""
-    if existing_items is None:
-        existing_items = set()
-    workshop_ids = set()
+def get_workshop_items(driver, tag, known_items):
+    """
+    Scrape workshop for new items (sorted by most recent).
+    Stops when a full page has no new items.
+    Returns list of new item IDs in order (most recent first).
+    """
+    new_items = []
     page = 1
-    # sort by most recent
     base_url = f"{config.WORKSHOP_BASE_URL}{tag}&browsesort=mostrecent&p="
+
     while True:
         driver.get(f"{base_url}{page}")
+        
+        # Check for empty page
         if driver.find_elements(By.CSS_SELECTOR, "#no_items"):
-            print(f"No more items found on page {page}.")
             break
+
         try:
             WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "a.item_link"))
             )
         except TimeoutException:
-            print(f"Timeout waiting on page {page}")
             break
+
         elements = driver.find_elements(By.CSS_SELECTOR, "a.item_link")
-        page_ids = {e.get_attribute("href").split("id=")[1].split("&")[0] for e in elements if e.get_attribute("href")}
-        # stop if no new items on this page
-        new_ids = page_ids - existing_items
-        if not new_ids:
-            print(f"No new items on page {page}, stopping early.")
+        page_ids = []
+        for e in elements:
+            href = e.get_attribute("href")
+            if href and "id=" in href:
+                page_ids.append(href.split("id=")[1].split("&")[0])
+
+        # Find new items on this page
+        new_on_page = [i for i in page_ids if i not in known_items]
+        
+        if not new_on_page:
+            print(f"  Page {page}: no new items, stopping")
             break
-        workshop_ids.update(new_ids)
-        print(f"Scraped page {page} ({len(elements)} items)")
+
+        new_items.extend(new_on_page)
+        print(f"  Page {page}: {len(new_on_page)} new items")
         page += 1
-    print(f"Total new workshop items scraped: {len(workshop_ids)}")
-    return workshop_ids
+
+    print(f"  Total new items found: {len(new_items)}")
+    return new_items
+
 
 def add_to_collection(driver, item_id, col_id, retries=3):
+    """
+    Add an item to a collection.
+    Returns True if successful, False otherwise.
+    """
+    wait_timeout = 12
+    
     for attempt in range(1, retries + 1):
         try:
-            print(f"Adding item {item_id} (attempt {attempt})...")
             driver.get(f"{config.SHARED_FILE_DETAILS_URL}{item_id}")
-            # Quick defensive re-check: if target collection already at/over limit, abort early
-            # (A parallel process or manual action might have filled it meanwhile)
-            # We fetch a minimal indicator by opening the collection dialog later and counting selected entries is heavy;
-            # instead rely on caller's map. This is just a placeholder for future enhancement.
-            WebDriverWait(driver, 5).until(
+            time.sleep(1)
+            
+            wait = WebDriverWait(driver, wait_timeout)
+            
+            # Click "Add to Collection" button
+            wait.until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, ".general_btn[onclick*='AddToCollection']"))
             ).click()
-            WebDriverWait(driver, 5).until(
+            
+            # Wait for dialog
+            wait.until(
                 EC.visibility_of_element_located((By.ID, "AddToCollectionDialog"))
             )
-            checkbox = WebDriverWait(driver, 5).until(
+            
+            # Find and click the collection checkbox
+            checkbox = wait.until(
                 EC.presence_of_element_located((By.ID, col_id))
             )
+            
             if not checkbox.is_selected():
                 checkbox.click()
-            WebDriverWait(driver, 5).until(
+            
+            # Click OK/Save button
+            wait.until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, ".btn_green_steamui.btn_medium span"))
             ).click()
-            print(f"Successfully added item {item_id}")
-            return
+            
+            time.sleep(0.5)  # Brief pause for Steam to process
+            return True
+            
         except Exception as e:
-            print(f"Error processing item {item_id} attempt {attempt}: {e}")
-            time.sleep(2)
-    print(f"Failed to process item {item_id} after {retries} attempts.")
-
-if __name__ == "__main__":
-    try:
-        tag = choose_collection()
-        cache = load_cache()
-        prev_items = get_existing_items_for_tag(cache, tag)
-        driver = config.configure_edge()
-        try:
-            # Gather current items for each collection of this tag
-            collections = config.COLLECTION_IDS.get(tag, [])
-            current_items_map = {}
-            total_current = set()
-            for col_id in collections:
-                items = get_collection_items(driver, col_id)
-                current_items_map[col_id] = set(items)
-                total_current.update(items)
-                # Seed cache structure for this tag/collection
-                cache.setdefault(tag, {})
-                cache[tag].setdefault(col_id, set()).update(items)
-            # Scrape new workshop items
-            workshop_items = get_workshop_items(driver, tag, prev_items)
-            # Determine missing items across all collections
-            missing_items = [i for i in workshop_items if i not in total_current]
-            print(f"Total missing {len(missing_items)} item(s) for '{tag}'. Distributing across {len(collections)} collections.")
-        except Exception as e:
-            print(f"Error during setup: {e}")
-            missing_items = []
-            collections = []
-            current_items_map = {}
-        # Add missing items, filling collections up to the max
-        for item in missing_items:
-            target_col = select_best_collection(current_items_map, config.MAX_COLLECTION_ITEMS)
-            if not target_col:
-                print(f"All collections for '{tag}' are at or over limit ({config.MAX_COLLECTION_ITEMS}). Stopping addition.")
-                break
-            if len(current_items_map[target_col]) >= config.MAX_COLLECTION_ITEMS:
-                print(f"Target collection {target_col} unexpectedly full. Re-evaluating...")
-                continue
-            add_to_collection(driver, item, target_col)
-            current_items_map[target_col].add(item)
-            if len(current_items_map[target_col]) >= config.MAX_COLLECTION_ITEMS:
-                print(f"Collection {target_col} reached max capacity ({config.MAX_COLLECTION_ITEMS}).")
+            if attempt < retries:
+                time.sleep(2)
             else:
-                remaining = config.MAX_COLLECTION_ITEMS - len(current_items_map[target_col])
-                if remaining <= 25:  # Near limit: refresh true count to avoid drift
-                    refreshed = get_collection_items(driver, target_col)
-                    current_items_map[target_col] = set(refreshed)
-                    if len(refreshed) >= config.MAX_COLLECTION_ITEMS:
-                        print(f"Collection {target_col} reached/ exceeded max after refresh ({len(refreshed)}) - stopping additions to it.")
-        # Persist per-collection caches (updated current_items_map includes any new additions)
-        for col_id, items in current_items_map.items():
-            cache.setdefault(tag, {})
-            cache[tag][col_id] = items
-        save_cache(cache)
-        driver.quit()
-    except KeyboardInterrupt:
-        print("\nExiting.")
-        sys.exit(0)
+                print(f"    Failed to add {item_id}: {type(e).__name__}")
+                return False
+    
+    return False
