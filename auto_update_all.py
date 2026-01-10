@@ -37,13 +37,18 @@ from steam_collection_bot import (
 SAVE_INTERVAL = 5
 
 
-def find_next_available_collection(tag, collections, cache):
-    """Find first unlocked collection with remaining capacity."""
+def find_next_available_collection(tag, collections, cache, live_counts):
+    """Find first unlocked collection with remaining capacity.
+    
+    Uses live_counts (from Steam scrape) when available, falls back to cache.
+    This prevents overfilling when Steam has more items than our cache.
+    """
     for col_id in collections:
         if is_collection_locked(col_id):
             continue
-        cached_count = len(cache.get(tag, {}).get(col_id, set()))
-        if cached_count < config.MAX_COLLECTION_ITEMS:
+        # Use live count if available (more accurate), otherwise use cache
+        actual_count = live_counts.get(col_id) if col_id in live_counts else len(cache.get(tag, {}).get(col_id, set()))
+        if actual_count < config.MAX_COLLECTION_ITEMS:
             return col_id
     return None
 
@@ -62,6 +67,8 @@ def main():
     
     try:
         for tag, collections in config.COLLECTION_IDS.items():
+            # Track live counts from Steam (more accurate than cache)
+            live_counts = {}
             print(f"\n{'='*40}")
             print(f"Processing: {tag}")
             print(f"Collections: {collections}")
@@ -87,6 +94,14 @@ def main():
                 
                 print(f"  Collection {col_id}: {len(live_items)} items on Steam")
                 
+                # Track the ACTUAL live count from Steam (this is the real capacity usage)
+                live_counts[col_id] = len(live_items)
+                
+                # Warn if live count differs significantly from cache
+                cached_count = len(cache.get(tag, {}).get(col_id, set()))
+                if live_items and abs(len(live_items) - cached_count) > 5:
+                    print(f"    ⚠️ Live count ({len(live_items)}) differs from cache ({cached_count})")
+                
                 # Merge into cache (cache only grows, never shrinks)
                 cache.setdefault(tag, {}).setdefault(col_id, set())
                 cache[tag][col_id].update(live_items)
@@ -105,7 +120,8 @@ def main():
                 continue
             
             # Find first unlocked collection with capacity
-            target_col = find_next_available_collection(tag, collections, cache)
+            # Use live_counts for accurate capacity check
+            target_col = find_next_available_collection(tag, collections, cache, live_counts)
             
             if not target_col:
                 print(f"  ⚠️ All collections for {tag} are locked/full!")
@@ -117,11 +133,12 @@ def main():
             added_count = 0
             for idx, item_id in enumerate(new_items, 1):
                 # Check if current target is full, switch if needed
-                cached_count = len(cache.get(tag, {}).get(target_col, set()))
-                if cached_count >= config.MAX_COLLECTION_ITEMS:
+                # Use live_counts if available, updated as we add items
+                current_count = live_counts.get(target_col, len(cache.get(tag, {}).get(target_col, set())))
+                if current_count >= config.MAX_COLLECTION_ITEMS:
                     # This collection is now full, lock it and find next
                     lock_collection(target_col)
-                    target_col = find_next_available_collection(tag, collections, cache)
+                    target_col = find_next_available_collection(tag, collections, cache, live_counts)
                     
                     if not target_col:
                         print(f"  ⚠️ All collections full for {tag}, stopping")
@@ -141,18 +158,21 @@ def main():
                     total_added += 1
                     unsaved_count += 1
                     
-                    current_count = len(cache[tag][target_col])
-                    remaining = config.MAX_COLLECTION_ITEMS - current_count
-                    print(f"✓ ({current_count}/{config.MAX_COLLECTION_ITEMS}, {remaining} left)")
+                    # Update live_counts to track actual capacity (increment by 1)
+                    live_counts[target_col] = live_counts.get(target_col, len(cache[tag][target_col]) - 1) + 1
+                    
+                    actual_count = live_counts[target_col]
+                    remaining = config.MAX_COLLECTION_ITEMS - actual_count
+                    print(f"✓ ({actual_count}/{config.MAX_COLLECTION_ITEMS}, {remaining} left)")
                     
                     # Track for commit message
                     key = f"{tag}:{target_col}"
                     added_by_collection[key] = added_by_collection.get(key, 0) + 1
                     
                     # Check if we just filled it - lock and switch immediately
-                    if current_count >= config.MAX_COLLECTION_ITEMS:
+                    if actual_count >= config.MAX_COLLECTION_ITEMS:
                         lock_collection(target_col)
-                        target_col = find_next_available_collection(tag, collections, cache)
+                        target_col = find_next_available_collection(tag, collections, cache, live_counts)
                         if target_col:
                             print(f"  Switching to collection {target_col}")
                     
