@@ -13,8 +13,8 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 
 EDGE_DRIVER_PATH = r"C:\EdgeDriver\msedgedriver.exe"
 
-# Maximum number of items per collection
-MAX_COLLECTION_ITEMS = 969
+# Maximum number of items per collection (Steam limit is ~979, use 950 for safety)
+MAX_COLLECTION_ITEMS = 950
 
 # Collection IDs for each collection name; use lists to support multiple collections per tag
 COLLECTION_IDS = {
