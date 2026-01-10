@@ -69,55 +69,61 @@ def main():
         for tag, collections in config.COLLECTION_IDS.items():
             # Track live counts from Steam (more accurate than cache)
             live_counts = {}
+            # Track items actually in collections (from live scrape, NOT cache)
+            # This is what we use to determine what's "known" - only real items in real collections
+            items_actually_in_collections = set()
+            
             print(f"\n{'='*40}")
             print(f"Processing: {tag}")
             print(f"Collections: {collections}")
             print(f"{'='*40}")
             
-            # Get all known items for this tag from cache
-            all_known_items = get_all_cached_items_for_tag(cache, tag)
-            print(f"  Cached items for {tag}: {len(all_known_items)}")
-            
-            # Also scrape each collection to update cache and detect full ones
-            # But ONLY for unlocked collections
+            # Scrape ALL collections (including locked) to know what's actually in them
+            # This is critical - cache may have items that were manually removed
             for col_id in collections:
-                if is_collection_locked(col_id):
-                    print(f"  Collection {col_id}: LOCKED (skipping scrape)")
-                    continue
-                    
                 live_items = get_collection_items(driver, col_id)
                 
                 if live_items is None:
-                    # Scrape failed - keep using cache, don't wipe it
-                    print(f"  Collection {col_id}: scrape failed, using cache")
+                    # Scrape failed - fall back to cache for this collection only
+                    print(f"  Collection {col_id}: scrape failed, using cache as fallback")
+                    cached_items = cache.get(tag, {}).get(col_id, set())
+                    items_actually_in_collections.update(cached_items)
+                    if not is_collection_locked(col_id):
+                        live_counts[col_id] = len(cached_items)
                     continue
                 
-                print(f"  Collection {col_id}: {len(live_items)} items on Steam")
+                print(f"  Collection {col_id}: {len(live_items)} items on Steam", end="")
+                if is_collection_locked(col_id):
+                    print(" (LOCKED)")
+                else:
+                    print("")
+                    live_counts[col_id] = len(live_items)
                 
-                # Track the ACTUAL live count from Steam (this is the real capacity usage)
-                live_counts[col_id] = len(live_items)
+                # Track what's ACTUALLY in this collection
+                items_actually_in_collections.update(live_items)
                 
-                # Warn if live count differs significantly from cache
-                cached_count = len(cache.get(tag, {}).get(col_id, set()))
-                if live_items and abs(len(live_items) - cached_count) > 5:
-                    print(f"    ⚠️ Live count ({len(live_items)}) differs from cache ({cached_count})")
-                
-                # Merge into cache (cache only grows, never shrinks)
-                cache.setdefault(tag, {}).setdefault(col_id, set())
-                cache[tag][col_id].update(live_items)
-                all_known_items.update(live_items)
+                # Update cache to match reality (REPLACE, don't just merge)
+                # This fixes the issue where cache has items that were manually removed
+                cache.setdefault(tag, {})[col_id] = live_items.copy()
                 
                 # Check if collection is at/over limit - LOCK IT
-                if len(live_items) >= config.MAX_COLLECTION_ITEMS:
+                if len(live_items) >= config.MAX_COLLECTION_ITEMS and not is_collection_locked(col_id):
                     lock_collection(col_id)
             
-            # Scrape workshop for new items
+            print(f"  Total items in all {tag} collections: {len(items_actually_in_collections)}")
+            
+            # Scrape workshop for items NOT in any collection (use live data, not cache!)
             print(f"\n  Scraping workshop for new {tag}...")
-            new_items = get_workshop_items(driver, tag, all_known_items)
+            new_items = get_workshop_items(driver, tag, items_actually_in_collections)
+            
+            # Reverse to add oldest first (so newest end up at top of collection)
+            new_items = list(reversed(new_items))
             
             if not new_items:
                 print(f"  No new items to add for {tag}")
                 continue
+            
+            print(f"  Found {len(new_items)} items to add (oldest first)")
             
             # Find first unlocked collection with capacity
             # Use live_counts for accurate capacity check

@@ -149,18 +149,22 @@ def get_collection_items(driver, col_id):
 def get_workshop_items(driver, tag, known_items):
     """
     Scrape workshop for new items (sorted by most recent).
-    Stops when a full page has no new items.
+    Continues through ALL pages until hitting empty page or max pages.
     Returns list of new item IDs in order (most recent first).
     """
     new_items = []
     page = 1
+    consecutive_empty = 0  # Track consecutive pages with no new items
+    max_consecutive_empty = 3  # Stop after this many consecutive pages with no new items
+    max_pages = 100  # Safety limit
     base_url = f"{config.WORKSHOP_BASE_URL}{tag}&browsesort=mostrecent&p="
 
-    while True:
+    while page <= max_pages:
         driver.get(f"{base_url}{page}")
         
-        # Check for empty page
+        # Check for empty page (no items at all on Steam)
         if driver.find_elements(By.CSS_SELECTOR, "#no_items"):
+            print(f"  Page {page}: empty page (end of workshop)")
             break
 
         try:
@@ -168,6 +172,7 @@ def get_workshop_items(driver, tag, known_items):
                 EC.presence_of_element_located((By.CSS_SELECTOR, "a.item_link"))
             )
         except TimeoutException:
+            print(f"  Page {page}: timeout loading, stopping")
             break
 
         elements = driver.find_elements(By.CSS_SELECTOR, "a.item_link")
@@ -181,11 +186,16 @@ def get_workshop_items(driver, tag, known_items):
         new_on_page = [i for i in page_ids if i not in known_items]
         
         if not new_on_page:
-            print(f"  Page {page}: no new items, stopping")
-            break
-
-        new_items.extend(new_on_page)
-        print(f"  Page {page}: {len(new_on_page)} new items")
+            consecutive_empty += 1
+            print(f"  Page {page}: no new items ({consecutive_empty}/{max_consecutive_empty} consecutive)")
+            if consecutive_empty >= max_consecutive_empty:
+                print(f"  Stopping after {max_consecutive_empty} consecutive pages with no new items")
+                break
+        else:
+            consecutive_empty = 0  # Reset counter when we find new items
+            new_items.extend(new_on_page)
+            print(f"  Page {page}: {len(new_on_page)} new items")
+        
         page += 1
 
     print(f"  Total new items found: {len(new_items)}")
