@@ -51,8 +51,9 @@ def configure_edge():
     options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
     options.add_experimental_option("useAutomationExtension", False)
     
-    # Disable images to speed up loading:
-    prefs = {"profile.managed_default_content_settings.images": 2}
+    ENABLE_IMAGES = False
+
+    prefs = {"profile.managed_default_content_settings.images": 1 if ENABLE_IMAGES else 2}
     options.add_experimental_option("prefs", prefs)
     options.set_capability('acceptInsecureCerts', True)
     
