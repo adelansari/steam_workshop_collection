@@ -16,6 +16,7 @@ import os
 import sys
 import time
 import subprocess
+import argparse
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 os.chdir(BASE_DIR)
@@ -54,12 +55,51 @@ def find_next_available_collection(tag, collections, cache, live_counts):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Steam Collection Auto-Updater")
+    parser.add_argument("--login", action="store_true", help="Show browser for manual login if not logged in")
+    parser.add_argument("--headful", action="store_true", help="Run browser with visible UI (non-headless)")
+    parser.add_argument("--debug", action="store_true", help="Enable debug output for troubleshooting")
+    args = parser.parse_args()
+    
     print("=" * 60)
     print("Steam Collection Auto-Updater")
     print("=" * 60)
     
+    # Show usage hint
+    if not args.login and not args.headful:
+        print("\n💡 Tip: Use --login flag for first run or if not logged in:")
+        print("   python auto_update_all.py --login\n")
+    
     cache = load_cache()
-    driver = config.configure_edge()
+    
+    # Determine headless mode: --headful flag or --login implies non-headless
+    headless = not (args.headful or args.login)
+    
+    if args.login:
+        print("🔓 Opening browser in visible mode for login...")
+    elif args.headful:
+        print("👁️  Running in visible mode...")
+    else:
+        print("👻 Running in headless mode...")
+    
+    playwright, context, page, is_logged_in = config.configure_browser(
+        headless=headless, 
+        prompt_login=args.login
+    )
+    
+    if not is_logged_in:
+        print("\n⚠️  WARNING: Not logged into Steam. Adding items to collections will fail.")
+        print("   Run with --login flag to login manually:")
+        print("   python auto_update_all.py --login")
+        if headless:
+            print("\n   Or run with --headful to see the browser:")
+            print("   python auto_update_all.py --headful")
+        response = input("\nContinue anyway? (y/n): ").strip().lower()
+        if response != 'y':
+            print("Exiting...")
+            context.close()
+            playwright.stop()
+            sys.exit(0)
     
     total_added = 0
     unsaved_count = 0  # Track adds since last save
@@ -81,7 +121,7 @@ def main():
             # Scrape ALL collections (including locked) to know what's actually in them
             # This is critical - cache may have items that were manually removed
             for col_id in collections:
-                live_items = get_collection_items(driver, col_id)
+                live_items = get_collection_items(page, col_id)
                 
                 if live_items is None:
                     # Scrape failed - fall back to cache for this collection only
@@ -114,7 +154,7 @@ def main():
             
             # Scrape workshop for items NOT in any collection (use live data, not cache!)
             print(f"\n  Scraping workshop for new {tag}...")
-            new_items = get_workshop_items(driver, tag, items_actually_in_collections)
+            new_items = get_workshop_items(page, tag, items_actually_in_collections)
             
             # Reverse to add oldest first (so newest end up at top of collection)
             new_items = list(reversed(new_items))
@@ -154,7 +194,7 @@ def main():
                 
                 # Try to add the item
                 print(f"  [{idx}/{len(new_items)}] Adding {item_id}...", end=" ")
-                success = add_to_collection(driver, item_id, target_col)
+                success = add_to_collection(page, item_id, target_col, debug=args.debug)
                 
                 if success:
                     # Update cache immediately
@@ -199,7 +239,8 @@ def main():
         print("\n\nInterrupted by user")
     
     finally:
-        driver.quit()
+        context.close()
+        playwright.stop()
         
         # Always save cache if anything was added (even on interrupt/error)
         if total_added > 0 or unsaved_count > 0:

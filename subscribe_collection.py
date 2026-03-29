@@ -1,11 +1,9 @@
 import os
 import sys
 import time
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 import config
+
 
 def subscribe_to_collection(collection_id="3445118133"):
     """
@@ -14,45 +12,52 @@ def subscribe_to_collection(collection_id="3445118133"):
     Args:
         collection_id (str): The ID of the collection to subscribe to
     """
-    driver = config.configure_edge()
+    playwright, context, page = config.configure_browser()
     
     try:
         print(f"Navigating to collection {collection_id}...")
-        driver.get(f"{config.SHARED_FILE_DETAILS_URL}{collection_id}")
+        page.goto(f"{config.SHARED_FILE_DETAILS_URL}{collection_id}", timeout=60000, wait_until="domcontentloaded")
         
         # Wait for the page to load
-        WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "body"))
-        )
+        page.wait_for_selector("body", timeout=15000)
+        
         # Count unsubscribed items in the collection
-        items_to_subscribe = driver.find_elements(By.CSS_SELECTOR, "a.general_btn.subscribe:not(.toggled)")
+        items_to_subscribe = page.query_selector_all("a.general_btn.subscribe:not(.toggled)")
         missing_count = len(items_to_subscribe)
         print(f"Found {missing_count} unsubscribed item(s) in this collection.")
+        
         if missing_count == 0:
             print("All items already subscribed; nothing to do.")
             return 0
+        
         print("Looking for 'Subscribe to all' button...")
+        
         # Wait for and click the "Subscribe to all" button
         try:
-            subscribe_button = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "a.general_btn.subscribe[onclick*='SubscribeCollection']"))
+            subscribe_button = page.wait_for_selector(
+                "a.general_btn.subscribe[onclick*='SubscribeCollection']",
+                timeout=10000,
+                state="visible"
             )
             print("Found 'Subscribe to all' button, clicking...")
             subscribe_button.click()
-        except TimeoutException:
+        except PlaywrightTimeoutError:
             print("Could not find 'Subscribe to all' button. The page layout may have changed.")
             return None
         
         try:
-            add_only_button = WebDriverWait(driver, 30).until(
-                EC.element_to_be_clickable((By.XPATH, "//div[contains(@class,'newmodal')]//div[contains(@class,'btn_green_steamui') and contains(@class,'btn_medium')]//span[text()='Add Only']"))
+            # Wait for and click the 'Add Only' button in the modal
+            add_only_button = page.wait_for_selector(
+                "div.newmodal div.btn_green_steamui.btn_medium:has-text('Add Only')",
+                timeout=30000,
+                state="visible"
             )
             print("Found 'Add Only' button, clicking...")
             add_only_button.click()
             time.sleep(3)
             print(f"Successfully subscribed to {missing_count} item(s) with 'Add Only' option!")
             return missing_count
-        except TimeoutException:
+        except PlaywrightTimeoutError:
             print("Failed to find or click 'Add Only' button in modal.")
             return None
         
@@ -62,7 +67,9 @@ def subscribe_to_collection(collection_id="3445118133"):
     
     finally:
         print("Closing browser...")
-        driver.quit()
+        context.close()
+        playwright.stop()
+
 
 def main():
     """Main function to run the subscription process."""
@@ -76,7 +83,9 @@ def main():
         print(f"  {i}. {tag}")
     print("  0. Enter custom collection ID")
     print(f"  {len(tags)+1}. Skip subscription (exit)")
+    
     choice = input(f"Select a tag (1-{len(tags)}) or 0 for custom, {len(tags)+1} to skip: ").strip()
+    
     if choice == str(len(tags)+1):
         print("Skipping subscription as requested.")
         sys.exit(0)
@@ -95,6 +104,7 @@ def main():
         except ValueError:
             print("Invalid input. Exiting.")
             sys.exit(1)
+    
     # Subscribe to each collection ID
     for col_id in col_ids:
         success = subscribe_to_collection(col_id)
@@ -105,6 +115,7 @@ def main():
             print(f"❌ Subscription failed for collection ID {col_id}.")
     
     # Subscription script completed; exiting without user prompt
+
 
 if __name__ == "__main__":
     try:

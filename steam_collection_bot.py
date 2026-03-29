@@ -12,10 +12,7 @@ import os
 import sys
 import time
 import json
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 import config
 
 CACHE_DIR = config.CACHE_DIR
@@ -106,17 +103,20 @@ def get_all_cached_items_for_tag(cache, tag):
 
 # ---------------------- Steam Scraping ---------------------- #
 
-def get_collection_items(driver, col_id):
+def get_collection_items(page, col_id):
     """
     Scrape all item IDs from a Steam collection.
     Returns a set of item IDs (strings), or None on failure.
     """
-    driver.get(f"{config.SHARED_FILE_DETAILS_URL}{col_id}")
     try:
-        WebDriverWait(driver, 20).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, ".collectionChildren"))
-        )
-    except TimeoutException:
+        page.goto(f"{config.SHARED_FILE_DETAILS_URL}{col_id}", timeout=60000, wait_until="domcontentloaded")
+    except PlaywrightTimeoutError:
+        print(f"  Timeout loading collection {col_id}")
+        return None
+    
+    try:
+        page.wait_for_selector(".collectionChildren", timeout=20000)
+    except PlaywrightTimeoutError:
         print(f"  Failed to load collection {col_id}")
         return None  # Return None to indicate failure, not empty set
 
@@ -125,9 +125,9 @@ def get_collection_items(driver, col_id):
     stable = 0
     start = time.time()
     while time.time() - start < 60 and stable < 3:
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
         time.sleep(0.5)
-        elements = driver.find_elements(By.CSS_SELECTOR, ".collectionItem a[href*='filedetails/?id=']")
+        elements = page.query_selector_all(".collectionItem a[href*='filedetails/?id=']")
         count = len(elements)
         if count == last_count:
             stable += 1
@@ -135,7 +135,7 @@ def get_collection_items(driver, col_id):
             stable = 0
         last_count = count
 
-    elements = driver.find_elements(By.CSS_SELECTOR, ".collectionItem a[href*='filedetails/?id=']")
+    elements = page.query_selector_all(".collectionItem a[href*='filedetails/?id=']")
     items = set()
     for e in elements:
         href = e.get_attribute("href")
@@ -146,36 +146,38 @@ def get_collection_items(driver, col_id):
     return items
 
 
-def get_workshop_items(driver, tag, known_items):
+def get_workshop_items(page, tag, known_items):
     """
     Scrape workshop for new items (sorted by most recent).
     Continues through ALL pages until hitting empty page or max pages.
     Returns list of new item IDs in order (most recent first).
     """
     new_items = []
-    page = 1
+    page_num = 1
     consecutive_empty = 0  # Track consecutive pages with no new items
     max_consecutive_empty = 3  # Stop after this many consecutive pages with no new items
     max_pages = 100  # Safety limit
     base_url = f"{config.WORKSHOP_BASE_URL}{tag}&browsesort=mostrecent&p="
 
-    while page <= max_pages:
-        driver.get(f"{base_url}{page}")
+    while page_num <= max_pages:
+        try:
+            page.goto(f"{base_url}{page_num}", timeout=60000, wait_until="domcontentloaded")
+        except PlaywrightTimeoutError:
+            print(f"  Page {page_num}: timeout loading, stopping")
+            break
         
         # Check for empty page (no items at all on Steam)
-        if driver.find_elements(By.CSS_SELECTOR, "#no_items"):
-            print(f"  Page {page}: empty page (end of workshop)")
+        if page.query_selector("#no_items"):
+            print(f"  Page {page_num}: empty page (end of workshop)")
             break
 
         try:
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "a.item_link"))
-            )
-        except TimeoutException:
-            print(f"  Page {page}: timeout loading, stopping")
+            page.wait_for_selector("a.item_link", timeout=10000)
+        except PlaywrightTimeoutError:
+            print(f"  Page {page_num}: timeout loading, stopping")
             break
 
-        elements = driver.find_elements(By.CSS_SELECTOR, "a.item_link")
+        elements = page.query_selector_all("a.item_link")
         page_ids = []
         for e in elements:
             href = e.get_attribute("href")
@@ -187,66 +189,105 @@ def get_workshop_items(driver, tag, known_items):
         
         if not new_on_page:
             consecutive_empty += 1
-            print(f"  Page {page}: no new items ({consecutive_empty}/{max_consecutive_empty} consecutive)")
+            print(f"  Page {page_num}: no new items ({consecutive_empty}/{max_consecutive_empty} consecutive)")
             if consecutive_empty >= max_consecutive_empty:
                 print(f"  Stopping after {max_consecutive_empty} consecutive pages with no new items")
                 break
         else:
             consecutive_empty = 0  # Reset counter when we find new items
             new_items.extend(new_on_page)
-            print(f"  Page {page}: {len(new_on_page)} new items")
+            print(f"  Page {page_num}: {len(new_on_page)} new items")
         
-        page += 1
+        page_num += 1
 
     print(f"  Total new items found: {len(new_items)}")
     return new_items
 
 
-def add_to_collection(driver, item_id, col_id, retries=3):
+def add_to_collection(page, item_id, col_id, retries=3, debug=False):
     """
     Add an item to a collection.
     Returns True if successful, False otherwise.
     """
-    wait_timeout = 12
+    wait_timeout = 12000  # milliseconds
     
     for attempt in range(1, retries + 1):
         try:
-            driver.get(f"{config.SHARED_FILE_DETAILS_URL}{item_id}")
+            try:
+                page.goto(f"{config.SHARED_FILE_DETAILS_URL}{item_id}", timeout=60000, wait_until="domcontentloaded")
+            except PlaywrightTimeoutError:
+                print(f"    Timeout loading item {item_id}")
+                if attempt < retries:
+                    time.sleep(2)
+                    continue
+                else:
+                    return False
             time.sleep(1)
             
-            wait = WebDriverWait(driver, wait_timeout)
+            # Debug: Check if add button exists
+            add_btn = page.query_selector(".general_btn[onclick*='AddToCollection']")
+            if not add_btn:
+                if debug:
+                    print(f"    DEBUG: Add button not found")
+                # Check if already in collection
+                remove_btn = page.query_selector(".general_btn[onclick*='RemoveFromCollection']")
+                if remove_btn:
+                    print(f"    Already in a collection")
+                    return False
+                raise Exception("Add to Collection button not found")
             
             # Click "Add to Collection" button
-            wait.until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, ".general_btn[onclick*='AddToCollection']"))
-            ).click()
+            add_btn.click()
             
             # Wait for dialog
-            wait.until(
-                EC.visibility_of_element_located((By.ID, "AddToCollectionDialog"))
-            )
+            dialog = page.wait_for_selector("#AddToCollectionDialog", timeout=wait_timeout, state="visible")
+            if not dialog:
+                raise Exception("AddToCollectionDialog not found")
             
-            # Find and click the collection checkbox
-            checkbox = wait.until(
-                EC.presence_of_element_located((By.ID, col_id))
-            )
+            # Find the collection checkbox (use attribute selector since IDs may start with digit)
+            checkbox = page.wait_for_selector(f'[id="{col_id}"]', timeout=wait_timeout)
+            if not checkbox:
+                raise Exception(f"Checkbox for collection {col_id} not found")
             
-            if not checkbox.is_selected():
+            is_checked = checkbox.is_checked()
+            if not is_checked:
                 checkbox.click()
+            else:
+                if debug:
+                    print(f"    Already checked")
             
-            # Click OK/Save button
-            wait.until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, ".btn_green_steamui.btn_medium span"))
-            ).click()
+            # Click OK/Save button - try different selectors
+            ok_btn = page.query_selector(".btn_green_steamui.btn_medium")
+            if not ok_btn:
+                ok_btn = page.query_selector("#AddToCollectionDialog .btn_green_steamui")
+            if not ok_btn:
+                ok_btn = page.query_selector("button:has-text('OK')")
             
-            time.sleep(0.5)  # Brief pause for Steam to process
+            if ok_btn:
+                ok_btn.click()
+            else:
+                raise Exception("OK button not found")
+            
+            # Wait for dialog to close
+            try:
+                page.wait_for_selector("#AddToCollectionDialog", timeout=5000, state="hidden")
+            except:
+                pass  # Dialog might close differently
+            
+            time.sleep(0.5)
             return True
             
         except Exception as e:
+            error_msg = str(e)
             if attempt < retries:
+                if debug:
+                    print(f"    Attempt {attempt} failed: {error_msg}, retrying...")
                 time.sleep(2)
             else:
-                print(f"    Failed to add {item_id}: {type(e).__name__}")
+                # Truncate long error messages
+                if len(error_msg) > 60:
+                    error_msg = error_msg[:57] + "..."
+                print(f"    Failed: {error_msg}")
                 return False
     
     return False

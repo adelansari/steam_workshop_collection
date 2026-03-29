@@ -29,8 +29,8 @@ For each tag (Characters, Vehicles, etc.):
 
 ## Prerequisites
 
-- Python 3.x
-- Microsoft Edge + [Edge WebDriver](https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver/)
+- Python 3.8+
+- [Playwright](https://playwright.dev/python/) (auto-installs browsers)
 - Steam account with collections
 
 ## Installation
@@ -38,7 +38,8 @@ For each tag (Characters, Vehicles, etc.):
 ```bash
 git clone https://github.com/adelansari/steam_workshop_collection.git
 cd steam_workshop_collection
-pip install selenium
+pip install -r requirements.txt
+playwright install chromium
 ```
 
 ## Configuration
@@ -47,7 +48,7 @@ pip install selenium
 
 ```python
 # Hard cap per collection (Steam's practical limit)
-MAX_COLLECTION_ITEMS = 969
+MAX_COLLECTION_ITEMS = 950
 
 # Map of tag → list of collection IDs (filled in order)
 COLLECTION_IDS = {
@@ -57,8 +58,7 @@ COLLECTION_IDS = {
     "Wheels": ["3530392942"],
 }
 
-# Path to Edge WebDriver
-EDGE_DRIVER_PATH = r"C:\EdgeDriver\msedgedriver.exe"
+# Browser profile is auto-created in edge_temp_profile/
 ```
 
 ### `locked_collections.json`
