@@ -177,6 +177,8 @@ def main():
             
             # Add items one by one
             added_count = 0
+            failed_items = []  # Track items that fail to add
+            
             for idx, item_id in enumerate(new_items, 1):
                 # Check if current target is full, switch if needed
                 # Use live_counts if available, updated as we add items
@@ -232,6 +234,48 @@ def main():
                     time.sleep(0.3)
                 else:
                     print(f"✗ Failed")
+                    failed_items.append(item_id)
+            
+            # Retry failed items once more at the end
+            if failed_items:
+                print(f"\n  Retrying {len(failed_items)} failed items...")
+                still_failed = []
+                for item_id in failed_items:
+                    print(f"  [Retry] Adding {item_id}...", end=" ")
+                    # Small delay before retry
+                    time.sleep(1)
+                    success = add_to_collection(page, item_id, target_col, debug=args.debug)
+                    if success:
+                        cache.setdefault(tag, {}).setdefault(target_col, set())
+                        cache[tag][target_col].add(item_id)
+                        added_count += 1
+                        total_added += 1
+                        unsaved_count += 1
+                        live_counts[target_col] = live_counts.get(target_col, len(cache[tag][target_col]) - 1) + 1
+                        print(f"✓")
+                        key = f"{tag}:{target_col}"
+                        added_by_collection[key] = added_by_collection.get(key, 0) + 1
+                    else:
+                        print(f"✗ Failed again")
+                        still_failed.append(item_id)
+                
+                # Save persistently failed items for manual review
+                if still_failed:
+                    failed_file = os.path.join(config.BASE_DIR, "failed_items.json")
+                    failed_data = {}
+                    if os.path.exists(failed_file):
+                        try:
+                            with open(failed_file, 'r') as f:
+                                failed_data = json.load(f)
+                        except:
+                            pass
+                    failed_data.setdefault(tag, []).extend(still_failed)
+                    # Remove duplicates while preserving order
+                    failed_data[tag] = list(dict.fromkeys(failed_data[tag]))
+                    with open(failed_file, 'w') as f:
+                        json.dump(failed_data, f, indent=2)
+                    print(f"\n  ⚠️  {len(still_failed)} items persistently failed, saved to failed_items.json")
+                    print(f"      Manual review needed for: {', '.join(still_failed[:3])}{'...' if len(still_failed) > 3 else ''}")
             
             print(f"  {tag}: added {added_count} items")
     
