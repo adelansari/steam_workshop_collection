@@ -234,6 +234,16 @@ def add_to_collection(page, item_id, col_id, retries=3, debug=False):
                 if remove_btn:
                     print(f"    Already in a collection")
                     return False
+                # Check if item was deleted/removed
+                error_box = page.query_selector(".error_box, .apphub_StorageAlert")
+                file_not_found = page.query_selector("text=File Not Found")
+                if error_box or file_not_found:
+                    print(f"    Item not available (deleted/removed)")
+                    return False
+                # Check if it's a collection page instead of item page
+                if "/collections/" in page.url or page.query_selector(".collectionChildren"):
+                    print(f"    Not an item page")
+                    return False
                 raise Exception("Add to Collection button not found")
             
             # Click "Add to Collection" button
